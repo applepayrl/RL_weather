@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>5-Day Forecast</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <h1>5-Day Forecast</h1>
+      <p class="tagline">Hourly temperature, rainfall &amp; wind</p>
+    </header>
+
+    <!-- Search -->
+    <div class="search-container">
+      <div class="search-input-wrap">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="search-input" placeholder="Search city…" autocomplete="off">
+      </div>
+      <div class="search-dropdown" id="search-dropdown"></div>
+    </div>
+
+    <!-- Current location -->
+    <div id="location-label"></div>
+
+    <!-- Global legend -->
+    <div class="legend-bar">
+      <div class="legend-item"><span class="legend-swatch temp"></span> Temperature (°C)</div>
+      <div class="legend-item"><span class="legend-swatch precip"></span> Rainfall (mm)</div>
+      <div class="legend-item">
+        <span class="legend-swatch wind"></span> Wind &gt;
+        <select id="wind-threshold" class="wind-select"></select> mph
+      </div>
+    </div>
+
+    <!-- Loading indicator -->
+    <div id="loading">
+      <div class="spinner"></div>
+      Fetching forecast…
+    </div>
+
+    <!-- Charts mount here -->
+    <div id="charts-container"></div>
+  </div>
+
+  <script src="app.js?v=2"></script>
+</body>
+</html>
