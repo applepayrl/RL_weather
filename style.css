@@ -246,14 +246,36 @@ body::before {
   background: var(--accent-wind);
 }
 
+.weather-icon-strip {
+  position: relative;
+  height: 22px;
+  margin-bottom: 2px;
+  overflow: hidden;
+}
+
+.weather-icon-strip .weather-icon {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.weather-icon-strip .weather-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .canvas-wrap {
   position: relative;
   height: 240px;
 }
 
 .canvas-wrap canvas {
-  width: 100% !important;
-  height: 100% !important;
+  display: block;
 }
 
 /* ─── Inline legend (custom, below header) ────────────────────────────────── */
@@ -328,5 +350,8 @@ body::before {
   .header h1 { font-size: 1.5rem; }
   .chart-card { padding: 16px 14px 14px; }
   .canvas-wrap { height: 180px; }
+  .weather-icon-strip { height: 18px; }
+  .weather-icon-strip .weather-icon { width: 12px; height: 12px; }
+  .weather-icon-strip .weather-icon svg { width: 12px; height: 12px; }
   .legend-bar { gap: 14px; }
 }
