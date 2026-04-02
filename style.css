@@ -77,6 +77,12 @@ body::before {
   font-weight: 400;
 }
 
+.last-updated {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 /* ─── Search ─────────────────────────────────────────────────────────────── */
 .search-container {
   position: relative;
@@ -248,7 +254,7 @@ body::before {
 
 .weather-icon-strip {
   position: relative;
-  height: 22px;
+  height: 28px;
   margin-bottom: 2px;
   overflow: hidden;
 }
@@ -257,16 +263,16 @@ body::before {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .weather-icon-strip .weather-icon svg {
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
 }
 
 .canvas-wrap {
@@ -350,8 +356,8 @@ body::before {
   .header h1 { font-size: 1.5rem; }
   .chart-card { padding: 16px 14px 14px; }
   .canvas-wrap { height: 180px; }
-  .weather-icon-strip { height: 18px; }
-  .weather-icon-strip .weather-icon { width: 12px; height: 12px; }
-  .weather-icon-strip .weather-icon svg { width: 12px; height: 12px; }
+  .weather-icon-strip { height: 22px; }
+  .weather-icon-strip .weather-icon { width: 16px; height: 16px; }
+  .weather-icon-strip .weather-icon svg { width: 16px; height: 16px; }
   .legend-bar { gap: 14px; }
 }

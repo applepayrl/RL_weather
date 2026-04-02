@@ -20,6 +20,7 @@ const locationLabel = document.getElementById('location-label');
 const chartsContainer = document.getElementById('charts-container');
 const loadingEl = document.getElementById('loading');
 const windSelect = document.getElementById('wind-threshold');
+const lastUpdatedEl = document.getElementById('last-updated');
 let lastForecastData = null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -44,6 +45,14 @@ function isToday(dateStr) {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
   return dateStr === `${y}-${m}-${dd}`;
+}
+
+function tempColor(val) {
+  if (val == null) return '#d94f4f';
+  if (val > 25) return '#d94f4f';   // red — hot
+  if (val > 15) return '#e8b84a';   // yellow — warm
+  if (val > 5)  return '#4caf50';   // green — mild
+  return '#4a90e2';                  // blue — cold
 }
 
 // ─── Weather icon SVGs ──────────────────────────────────────────────────────
@@ -314,11 +323,16 @@ function createDayChart(dayData) {
           pointRadius: 0,
           pointHoverRadius: 5,
           pointHoverBackgroundColor: '#d94f4f',
-          tension: 0.35,
-          fill: true,
+          tension: 0.4,
+          fill: false,
           yAxisID: 'yTemp',
           spanGaps: true,
-          order: 1
+          order: 1,
+          segment: {
+            borderColor(ctx) {
+              return tempColor(ctx.p0.parsed.y);
+            }
+          }
         },
         {
           label: 'Precipitation (mm)',
@@ -371,7 +385,8 @@ function createDayChart(dayData) {
         x: {
           grid: {
             color: 'rgba(150,150,150,0.1)',
-            drawTicks: true
+            drawTicks: true,
+            offset: false
           },
           ticks: {
             maxRotation: 0,
@@ -399,13 +414,13 @@ function createDayChart(dayData) {
             display: true,
             text: '°C',
             font: { family: "'DM Sans', sans-serif", size: 12, weight: '600' },
-            color: '#d94f4f'
+            color: '#ccc'
           },
           grid: { color: 'rgba(150,150,150,0.08)' },
           ticks: {
             stepSize: 5,
             font: { family: "'DM Mono', monospace", size: 11 },
-            color: '#d94f4f'
+            color: '#ccc'
           }
         },
         yPrecip: {
@@ -436,7 +451,7 @@ function createDayChart(dayData) {
     const area = chart.chartArea;
     if (!area) return;
     const chartWidth = area.right - area.left;
-    const iconSize = 18; // px per icon including gap
+    const iconSize = 24; // px per icon including gap
     const maxIcons = Math.floor(chartWidth / iconSize);
     // Pick the smallest step from [1,2,3,4,6] that fits
     const steps = [1, 2, 3, 4, 6];
@@ -452,8 +467,8 @@ function createDayChart(dayData) {
       iconStrip.appendChild(span);
     }
   }
-  // Defer first call so Chart.js layout is complete
-  requestAnimationFrame(() => populateIcons());
+  // Defer first call so Chart.js layout is complete (double rAF)
+  requestAnimationFrame(() => requestAnimationFrame(() => populateIcons()));
 
   const ro = new ResizeObserver(() => requestAnimationFrame(() => populateIcons()));
   ro.observe(canvasWrap);
@@ -471,6 +486,11 @@ async function loadWeather(lat, lon) {
   try {
     const data = await fetchForecast(lat, lon);
     lastForecastData = data;
+    const now = new Date();
+    lastUpdatedEl.textContent = 'Last updated: ' + now.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true
+    });
     const days = sliceIntoDays(data);
     days.forEach(d => createDayChart(d));
   } catch (err) {
