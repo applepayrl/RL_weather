@@ -192,6 +192,14 @@ const windDotPlugin = {
 
 Chart.register(dayNightPlugin, currentTimePlugin, windDotPlugin);
 
+// Custom tooltip positioner — anchors the tooltip at the finger/cursor
+// position (not the average of active data points). Combined with
+// yAlign:'bottom' and a large caretPadding, this lifts the tooltip above
+// the finger so the values aren't blocked by the touch itself.
+Chart.Tooltip.positioners.touchAbove = function(items, eventPosition) {
+  return { x: eventPosition.x, y: eventPosition.y };
+};
+
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
 async function fetchForecast(lat, lon) {
@@ -375,6 +383,11 @@ function createDayChart(dayData) {
           bodyFont: { family: "'DM Sans', sans-serif", size: 12 },
           padding: 10,
           cornerRadius: 6,
+          // On touch devices, position the tooltip above the finger so the
+          // finger itself doesn't block the values. Desktop keeps defaults.
+          position: IS_TOUCH_ONLY ? 'touchAbove' : 'average',
+          yAlign: IS_TOUCH_ONLY ? 'bottom' : undefined,
+          caretPadding: IS_TOUCH_ONLY ? 80 : 2,
           callbacks: {
             afterBody(items) {
               const idx = items[0]?.dataIndex;
@@ -487,15 +500,21 @@ function createDayChart(dayData) {
   charts.push(chart);
 }
 
-// Clear any visible tooltips across all charts — used on document-level
-// touchend so the box disappears the instant the finger lifts, even if
-// the finger lifts off the edge of the canvas.
+// Clear any visible tooltips across all charts. We clear synchronously,
+// then again on the next animation frame, then once more shortly after —
+// this catches any tooltip re-activation that Chart.js has scheduled on a
+// future frame in response to the touchstart that preceded this touchend
+// (otherwise a brief tap can leave the values box visible after release).
 function hideAllTooltips() {
-  charts.forEach(chart => {
+  const clear = () => charts.forEach(chart => {
+    if (!chart.tooltip) return;
     chart.setActiveElements([]);
     chart.tooltip.setActiveElements([], { x: 0, y: 0 });
     chart.update('none');
   });
+  clear();
+  requestAnimationFrame(clear);
+  setTimeout(clear, 50);
 }
 
 if (IS_TOUCH_ONLY) {
