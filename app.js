@@ -12,6 +12,9 @@ let charts = [];
 let currentLat = DEFAULT_LAT;
 let currentLon = DEFAULT_LON;
 let debounceTimer = null;
+// Touch-only device (no hover capability) — used to gate tooltip behavior
+// so iOS taps don't leave a sticky tooltip via synthetic mouse events.
+const IS_TOUCH_ONLY = window.matchMedia('(hover: none)').matches;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const searchInput = document.getElementById('search-input');
@@ -355,6 +358,12 @@ function createDayChart(dayData) {
         mode: 'index',
         intersect: false
       },
+      // On touch-only devices, ignore mouse events entirely. iOS synthesizes
+      // mousemove/mouseup/click after touchend, which would otherwise
+      // re-activate the tooltip right after we hide it on finger-lift.
+      events: IS_TOUCH_ONLY
+        ? ['touchstart', 'touchmove']
+        : ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
       layout: {
         padding: { bottom: 32 } // room for wind dots below x-axis labels
       },
@@ -475,17 +484,23 @@ function createDayChart(dayData) {
   ro.observe(canvasWrap);
   chart._iconResizeObserver = ro;
 
-  // Hide tooltip as soon as finger lifts on touch devices so the chart
-  // stays legible when scrolling down the page after a tap.
-  const hideTooltip = () => {
+  charts.push(chart);
+}
+
+// Clear any visible tooltips across all charts — used on document-level
+// touchend so the box disappears the instant the finger lifts, even if
+// the finger lifts off the edge of the canvas.
+function hideAllTooltips() {
+  charts.forEach(chart => {
     chart.setActiveElements([]);
     chart.tooltip.setActiveElements([], { x: 0, y: 0 });
     chart.update('none');
-  };
-  canvas.addEventListener('touchend', hideTooltip);
-  canvas.addEventListener('touchcancel', hideTooltip);
+  });
+}
 
-  charts.push(chart);
+if (IS_TOUCH_ONLY) {
+  document.addEventListener('touchend', hideAllTooltips, { passive: true });
+  document.addEventListener('touchcancel', hideAllTooltips, { passive: true });
 }
 
 // ─── Main render ─────────────────────────────────────────────────────────────
