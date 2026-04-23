@@ -21,6 +21,7 @@ const chartsContainer = document.getElementById('charts-container');
 const loadingEl = document.getElementById('loading');
 const windSelect = document.getElementById('wind-threshold');
 const lastUpdatedEl = document.getElementById('last-updated');
+const refreshBtn = document.getElementById('refresh-btn');
 let lastForecastData = null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -474,6 +475,16 @@ function createDayChart(dayData) {
   ro.observe(canvasWrap);
   chart._iconResizeObserver = ro;
 
+  // Hide tooltip as soon as finger lifts on touch devices so the chart
+  // stays legible when scrolling down the page after a tap.
+  const hideTooltip = () => {
+    chart.setActiveElements([]);
+    chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+    chart.update('none');
+  };
+  canvas.addEventListener('touchend', hideTooltip);
+  canvas.addEventListener('touchcancel', hideTooltip);
+
   charts.push(chart);
 }
 
@@ -564,6 +575,17 @@ windSelect.addEventListener('change', () => {
   destroyCharts();
   const days = sliceIntoDays(lastForecastData);
   days.forEach(d => createDayChart(d));
+});
+
+// ─── Refresh button ──────────────────────────────────────────────────────────
+refreshBtn.addEventListener('click', async () => {
+  if (refreshBtn.classList.contains('spinning')) return;
+  refreshBtn.classList.add('spinning');
+  try {
+    await loadWeather(currentLat, currentLon);
+  } finally {
+    refreshBtn.classList.remove('spinning');
+  }
 });
 
 // ─── Init ────────────────────────────────────────────────────────────────────

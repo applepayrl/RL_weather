@@ -62,8 +62,46 @@ body::before {
 
 /* ─── Header ─────────────────────────────────────────────────────────────── */
 .header {
+  position: relative;
   text-align: center;
   margin-bottom: 32px;
+}
+
+.refresh-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, transform 0.3s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.refresh-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.refresh-btn:active {
+  transform: scale(0.92);
+}
+
+.refresh-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.refresh-btn.spinning svg {
+  animation: spin 0.8s linear infinite;
 }
 
 .header h1 {
