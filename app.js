@@ -51,6 +51,15 @@ function isToday(dateStr) {
   return dateStr === `${y}-${m}-${dd}`;
 }
 
+// Parse an ISO datetime string (e.g. "2026-05-27T05:29") into a fractional
+// hour (5.483 for 5:29 AM). Used for sunrise/sunset positions on the x-axis.
+function parseHourFromISO(iso) {
+  if (!iso) return null;
+  const t = iso.split('T')[1] ?? '';
+  const [h, m] = t.split(':').map(Number);
+  return (h || 0) + ((m || 0) / 60);
+}
+
 function tempColor(val) {
   if (val == null) return '#d94f4f';
   if (val > 25) return '#d94f4f';   // red — hot
@@ -60,21 +69,53 @@ function tempColor(val) {
 }
 
 // ─── Weather icon SVGs ──────────────────────────────────────────────────────
+//
+// Driven by Open-Meteo's hourly WMO weather_code (the authoritative condition)
+// plus the day's actual sunrise/sunset to distinguish sun vs moon. The previous
+// implementation derived icons from cloud_cover/precip/temp heuristics, which
+// missed fog (45/48), thunderstorms (95–99), wet snow (0–2 °C), and used a
+// hardcoded 8AM–8PM day window that was wrong outside late autumn / winter.
+//
+// WMO codes Open-Meteo can return:
+//   0       Clear sky
+//   1       Mainly clear
+//   2       Partly cloudy
+//   3       Overcast
+//   45, 48  Fog / depositing fog
+//   51–57   Drizzle (incl. freezing)
+//   61–67   Rain (incl. freezing)
+//   71–77   Snow / snow grains
+//   80–82   Rain showers
+//   85, 86  Snow showers
+//   95–99   Thunderstorm (with hail)
 
-function weatherIconSVG(hour, cloudCover, precip, temp) {
-  const isDay = hour >= 8 && hour < 20;
+function weatherCategory(code) {
+  if (code == null) return 'clear';
+  if (code === 2) return 'partly';
+  if (code === 3) return 'overcast';
+  if (code === 45 || code === 48) return 'fog';
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rain';
+  if (code === 71 || code === 73 || code === 75 || code === 77 ||
+      code === 85 || code === 86) return 'snow';
+  if (code >= 95) return 'thunder';
+  return 'clear'; // covers 0, 1, and any unexpected fallback
+}
+
+function weatherIconSVG(hour, weatherCode, sunriseHour, sunsetHour) {
+  const sr = sunriseHour ?? 8;
+  const ss = sunsetHour ?? 20;
+  const isDay = hour >= sr && hour < ss;
+  const cat = weatherCategory(weatherCode);
   const sz = 'viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"';
 
-  if (precip > 0 && temp < 0) {
-    // Snow
+  if (cat === 'snow') {
     return `<svg ${sz}>
       <path d="M6 14c0-2 2-3.5 4.5-3.5S13 10 14 10c2.5 0 4 1.5 4 3.5S16 17 14 17H6.5C4.5 17 3 15.8 6 14z" fill="#7a7a8a"/>
       <circle cx="8" cy="20" r="1" fill="#e0e8f0"/><circle cx="12" cy="21" r="1" fill="#e0e8f0"/><circle cx="16" cy="20" r="1" fill="#e0e8f0"/>
       <circle cx="10" cy="23" r="0.8" fill="#e0e8f0"/><circle cx="14" cy="23" r="0.8" fill="#e0e8f0"/>
     </svg>`;
   }
-  if (precip > 0) {
-    // Rain
+  if (cat === 'rain') {
     return `<svg ${sz}>
       <path d="M6 12c0-2 2-3.5 4.5-3.5S13 8 14 8c2.5 0 4 1.5 4 3.5S16 15 14 15H6.5C4.5 15 3 13.8 6 12z" fill="#7a7a8a"/>
       <line x1="9" y1="17" x2="8" y2="21" stroke="#4a90e2" stroke-width="1.5" stroke-linecap="round"/>
@@ -82,14 +123,28 @@ function weatherIconSVG(hour, cloudCover, precip, temp) {
       <line x1="17" y1="17" x2="16" y2="20" stroke="#4a90e2" stroke-width="1.5" stroke-linecap="round"/>
     </svg>`;
   }
-  if (cloudCover > 75) {
-    // Full cloud
+  if (cat === 'fog') {
+    // Stacked horizontal streaks
+    return `<svg ${sz}>
+      <line x1="3.5" y1="7" x2="20.5" y2="7" stroke="#a0b4d0" stroke-width="1.8" stroke-linecap="round"/>
+      <line x1="5.5" y1="11" x2="18.5" y2="11" stroke="#a0b4d0" stroke-width="1.8" stroke-linecap="round"/>
+      <line x1="3.5" y1="15" x2="20.5" y2="15" stroke="#a0b4d0" stroke-width="1.8" stroke-linecap="round"/>
+      <line x1="5.5" y1="19" x2="18.5" y2="19" stroke="#a0b4d0" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>`;
+  }
+  if (cat === 'thunder') {
+    // Cloud above, lightning bolt below
+    return `<svg ${sz}>
+      <path d="M5 11c0-2.5 2.5-4 5-4 .5-2 2.5-3.5 5-3.5 3 0 5 2 5 4.5 0 .3 0 .6-.1.9C21.5 9.5 22 10.5 22 12c0 2-1.5 3.5-3.5 3.5H6c-2 0-3.5-1.5-3.5-3.5 0-1.5 1-2.8 2.5-3z" fill="#7a7a8a"/>
+      <path d="M13 14 L8.5 19.5 L11.5 19.5 L10 23 L15.5 17 L12.5 17 Z" fill="#f0c050"/>
+    </svg>`;
+  }
+  if (cat === 'overcast') {
     return `<svg ${sz}>
       <path d="M5 14c0-2.5 2.5-4 5-4 .5-2 2.5-3.5 5-3.5 3 0 5 2 5 4.5 0 .3 0 .6-.1.9C21.5 12.5 22 13.5 22 15c0 2-1.5 3.5-3.5 3.5H6c-2 0-3.5-1.5-3.5-3.5 0-1.5 1-2.8 2.5-3z" fill="#7a7a8a"/>
     </svg>`;
   }
-  if (cloudCover >= 25) {
-    // Partial cloud
+  if (cat === 'partly') {
     if (isDay) {
       return `<svg ${sz}>
         <circle cx="10" cy="8" r="4" fill="#f0c050"/>
@@ -106,8 +161,8 @@ function weatherIconSVG(hour, cloudCover, precip, temp) {
       <path d="M8 16c0-2 2-3 4-3 .3-1.5 2-2.5 4-2.5 2.5 0 4 1.5 4 3.5S18 17.5 16 17.5H8.5C7 17.5 6 16.8 8 16z" fill="#7a7a8a"/>
     </svg>`;
   }
+  // cat === 'clear'
   if (isDay) {
-    // Full sun
     return `<svg ${sz}>
       <circle cx="12" cy="12" r="5" fill="#f0c050"/>
       <line x1="12" y1="3" x2="12" y2="5" stroke="#f0c050" stroke-width="1.5" stroke-linecap="round"/>
@@ -120,7 +175,6 @@ function weatherIconSVG(hour, cloudCover, precip, temp) {
       <line x1="17" y1="7" x2="18.4" y2="5.6" stroke="#f0c050" stroke-width="1.5" stroke-linecap="round"/>
     </svg>`;
   }
-  // Moon
   return `<svg ${sz}>
     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="#a0b4d0"/>
   </svg>`;
@@ -131,11 +185,14 @@ function weatherIconSVG(hour, cloudCover, precip, temp) {
 const dayNightPlugin = {
   id: 'dayNight',
   beforeDatasetsDraw(chart) {
+    const cfg = chart.options.plugins.dayNight;
+    const sunriseHour = cfg?.sunriseHour ?? 8;
+    const sunsetHour = cfg?.sunsetHour ?? 20;
     const ctx = chart.ctx;
     const xAxis = chart.scales.x;
     const { top, bottom } = chart.chartArea;
-    const xLeft = xAxis.getPixelForValue(8);
-    const xRight = xAxis.getPixelForValue(20);
+    const xLeft = xAxis.getPixelForValue(sunriseHour);
+    const xRight = xAxis.getPixelForValue(sunsetHour);
     ctx.save();
     ctx.fillStyle = 'rgba(255, 191, 105, 0.10)';
     ctx.fillRect(xLeft, top, xRight - xLeft, bottom - top);
@@ -190,7 +247,7 @@ const windDotPlugin = {
   }
 };
 
-// Dashed horizontal line at 0 °C — visual freezing reference.
+// Solid horizontal line at 0 °C — visual freezing reference.
 // Skipped when 0 is outside the chart's y range.
 const freezingLinePlugin = {
   id: 'freezingLine',
@@ -202,8 +259,7 @@ const freezingLinePlugin = {
     const y = yScale.getPixelForValue(0);
     const ctx = chart.ctx;
     ctx.save();
-    ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(140, 190, 235, 0.45)';
+    ctx.strokeStyle = 'rgba(140, 190, 235, 0.55)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(left, y);
@@ -243,7 +299,8 @@ async function fetchForecast(lat, lon) {
   const params = new URLSearchParams({
     latitude: lat,
     longitude: lon,
-    hourly: 'temperature_2m,precipitation,wind_speed_10m,cloud_cover',
+    hourly: 'temperature_2m,precipitation,wind_speed_10m,cloud_cover,weather_code',
+    daily: 'sunrise,sunset',
     timezone: 'auto',
     forecast_days: 5
   });
@@ -272,13 +329,18 @@ function sliceIntoDays(apiData) {
   const precip = apiData.hourly.precipitation;
   const wind = apiData.hourly.wind_speed_10m;
   const cloud = apiData.hourly.cloud_cover;
+  const wcode = apiData.hourly.weather_code;
 
   const dayMap = new Map();
 
   times.forEach((t, i) => {
     const dateStr = t.split('T')[0];
     if (!dayMap.has(dateStr)) {
-      dayMap.set(dateStr, { date: dateStr, temps: [], precip: [], wind: [], cloud: [], hours: [] });
+      dayMap.set(dateStr, {
+        date: dateStr,
+        temps: [], precip: [], wind: [], cloud: [], weatherCode: [], hours: [],
+        sunrise: null, sunset: null
+      });
     }
     const day = dayMap.get(dateStr);
     day.hours.push(parseInt(t.split('T')[1].split(':')[0], 10));
@@ -286,7 +348,19 @@ function sliceIntoDays(apiData) {
     day.precip.push(precip[i]);
     day.wind.push(wind[i]); // km/h
     day.cloud.push(cloud[i]); // %
+    day.weatherCode.push(wcode?.[i] ?? null);
   });
+
+  // Attach daily sunrise/sunset to the matching day
+  if (apiData.daily?.time) {
+    apiData.daily.time.forEach((dateStr, i) => {
+      const day = dayMap.get(dateStr);
+      if (day) {
+        day.sunrise = apiData.daily.sunrise[i];
+        day.sunset = apiData.daily.sunset[i];
+      }
+    });
+  }
 
   // Take first 5 days (in case API returns a partial 6th)
   return [...dayMap.values()].slice(0, 5);
@@ -343,13 +417,20 @@ function createDayChart(dayData) {
   const precip = new Array(24).fill(0);
   const windBool = new Array(24).fill(false);
   const cloudArr = new Array(24).fill(null);
+  const wCodeArr = new Array(24).fill(null);
 
   dayData.hours.forEach((h, i) => {
     temps[h] = dayData.temps[i];
     precip[h] = dayData.precip[i] ?? 0;
     windBool[h] = (dayData.wind[i] * KMH_TO_MPH) > windThresholdMph;
     cloudArr[h] = dayData.cloud?.[i] ?? null;
+    wCodeArr[h] = dayData.weatherCode?.[i] ?? null;
   });
+
+  // Day's actual sunrise/sunset as fractional hours (e.g. 5.48 = 5:29 AM).
+  // Used by both the dayNight background and the sun/moon icon selection.
+  const sunriseHour = parseHourFromISO(dayData.sunrise) ?? 8;
+  const sunsetHour = parseHourFromISO(dayData.sunset) ?? 20;
 
   // Compute per-chart y-axis bounds. Only expand the side that clips, rounded
   // to TEMP_STEP. If data fits within the standard range, leave bounds alone.
@@ -461,7 +542,8 @@ function createDayChart(dayData) {
           }
         },
         windDots: { data: windBool },
-        currentTime: { isToday: isToday(dayData.date) }
+        currentTime: { isToday: isToday(dayData.date) },
+        dayNight: { sunriseHour, sunsetHour }
       },
       scales: {
         x: {
@@ -540,12 +622,12 @@ function createDayChart(dayData) {
     const step = steps.find(s => Math.ceil(24 / s) <= maxIcons) || 6;
 
     for (let h = 0; h < 24; h += step) {
-      if (cloudArr[h] == null && temps[h] == null) continue;
+      if (wCodeArr[h] == null && temps[h] == null) continue;
       const x = chart.scales.x.getPixelForValue(h);
       const span = document.createElement('span');
       span.className = 'weather-icon';
       span.style.left = x + 'px';
-      span.innerHTML = weatherIconSVG(h, cloudArr[h] ?? 0, precip[h], temps[h] ?? 0);
+      span.innerHTML = weatherIconSVG(h, wCodeArr[h], sunriseHour, sunsetHour);
       iconStrip.appendChild(span);
     }
   }
