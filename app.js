@@ -190,7 +190,44 @@ const windDotPlugin = {
   }
 };
 
-Chart.register(dayNightPlugin, currentTimePlugin, windDotPlugin);
+// Dashed horizontal line at 0 °C — visual freezing reference.
+// Skipped when 0 is outside the chart's y range.
+const freezingLinePlugin = {
+  id: 'freezingLine',
+  beforeDatasetsDraw(chart) {
+    const yScale = chart.scales.yTemp;
+    if (!yScale) return;
+    if (0 < yScale.min || 0 > yScale.max) return;
+    const { left, right } = chart.chartArea;
+    const y = yScale.getPixelForValue(0);
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(140, 190, 235, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+
+Chart.register(dayNightPlugin, currentTimePlugin, windDotPlugin, freezingLinePlugin);
+
+// ─── Temperature-axis sizing ─────────────────────────────────────────────────
+// Standard y-axis range. When a day's data exceeds these bounds, we expand the
+// y-axis (rounded to TEMP_STEP) and grow the canvas height by exactly the
+// number of pixels needed to keep pixels-per-°C identical across all charts —
+// so vertical distances on the y-axis are visually comparable across days.
+const STANDARD_TEMP_MIN = -5;
+const STANDARD_TEMP_MAX = 30;
+const STANDARD_TEMP_RANGE = STANDARD_TEMP_MAX - STANDARD_TEMP_MIN; // 35 °C
+const TEMP_STEP = 5; // round expansions to nearest 5 °C to keep tick labels clean
+// Approx pixels of canvas height reserved for x-axis labels + layout.padding.bottom
+// + top padding. Subtracting this from canvas height gives the plot-area height.
+// Expansions add only plot-area pixels (chrome is constant across charts).
+const CHART_CHROME_PX = 62;
 
 // Custom tooltip positioner — anchors the tooltip at the finger/cursor
 // position (not the average of active data points). Combined with
@@ -314,6 +351,28 @@ function createDayChart(dayData) {
     cloudArr[h] = dayData.cloud?.[i] ?? null;
   });
 
+  // Compute per-chart y-axis bounds. Only expand the side that clips, rounded
+  // to TEMP_STEP. If data fits within the standard range, leave bounds alone.
+  const validTemps = temps.filter(t => t != null);
+  const dataMin = validTemps.length ? Math.min(...validTemps) : STANDARD_TEMP_MIN;
+  const dataMax = validTemps.length ? Math.max(...validTemps) : STANDARD_TEMP_MAX;
+  const yMin = dataMin < STANDARD_TEMP_MIN
+    ? Math.floor(dataMin / TEMP_STEP) * TEMP_STEP
+    : STANDARD_TEMP_MIN;
+  const yMax = dataMax > STANDARD_TEMP_MAX
+    ? Math.ceil(dataMax / TEMP_STEP) * TEMP_STEP
+    : STANDARD_TEMP_MAX;
+  const yRange = yMax - yMin;
+
+  // Grow the canvas height by exactly the plot-area pixels needed for the
+  // extra °C, so pixels-per-°C matches the standard chart's pixels-per-°C.
+  if (yRange > STANDARD_TEMP_RANGE) {
+    const standardHeight = parseFloat(getComputedStyle(canvasWrap).height);
+    const pxPerDegree = (standardHeight - CHART_CHROME_PX) / STANDARD_TEMP_RANGE;
+    const newHeight = standardHeight + (yRange - STANDARD_TEMP_RANGE) * pxPerDegree;
+    canvasWrap.style.height = `${Math.round(newHeight)}px`;
+  }
+
   // Per-bar colors: darker blue for bars exceeding 5mm
   const precipBg = precip.map(v => v > 5 ? 'rgba(30, 70, 160, 0.75)' : 'rgba(74, 144, 226, 0.55)');
   const precipBorder = precip.map(v => v > 5 ? 'rgba(30, 70, 160, 0.95)' : 'rgba(74, 144, 226, 0.8)');
@@ -431,8 +490,8 @@ function createDayChart(dayData) {
         yTemp: {
           type: 'linear',
           position: 'left',
-          min: -5,
-          max: 30,
+          min: yMin,
+          max: yMax,
           title: {
             display: true,
             text: '°C',
