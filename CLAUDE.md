@@ -1,7 +1,7 @@
 # Weather App — Project Instructions
 
 ## Overview
-A static weather dashboard (no backend) that shows a 5-day hourly forecast using Open-Meteo's free API. Default location is 10065 (Upper East Side, NYC). Users can search for any city via the geocoding dropdown; the last city and wind threshold are remembered (localStorage). Optimized for iPhone (17 Pro) as a home-screen web app, served from GitHub Pages.
+A static weather dashboard (no backend) that shows a 5-day hourly forecast using Open-Meteo's free API. Default location is 10065 (Upper East Side, NYC). Users can search for any city via the geocoding dropdown; a Settings sheet (gear button) sets the temperature colour bands, whether they follow actual or feels-like temperature, and the wind/gust dot thresholds. The last city and all settings are remembered (localStorage). Optimized for iPhone (17 Pro) as a home-screen web app, served from GitHub Pages.
 
 ## Tech stack
 - HTML5 + CSS3 + vanilla JavaScript (ES6+)
@@ -42,16 +42,17 @@ Open http://localhost:8080 in the browser and confirm ALL of the following:
 - [ ] Today's card is labeled "Today — [Day, Mon DD]" (today = the searched city's date, not the device's)
 - [ ] Each chart has 24 x-axis tick marks
 - [ ] X-axis labels appear every 3 hours in 12h format (12AM, 3AM, 6AM, 9AM, 12PM, 3PM, 6PM, 9PM)
-- [ ] Temperature line (colored by band: blue ≤5, green ≤15, yellow ≤25, red >25 °C) uses left y-axis labeled "°C"
+- [ ] Temperature line (colored by band, defaults blue ≤5, green ≤15, yellow ≤25, red >25 °C) uses left y-axis labeled "°C"; with Settings → Feels like, the actual-temperature line is coloured by the feels-like value
 - [ ] Blue precipitation bars use right y-axis labeled "mm" (0–5, grows when a day has heavier rain)
 - [ ] Thin gray feels-like line is drawn on the °C axis
-- [ ] Orange wind dots appear below x-axis for hours where wind > the selected threshold (default 10 mph); red dots where gusts ≥ 30 mph
+- [ ] Orange wind dots appear below x-axis for hours where wind > the wind threshold (default 10 mph); red dots where gusts ≥ the gust threshold (default 30 mph); legend shows both values
 - [ ] On today's card, past hours are dimmed and a dashed line marks the current time
 - [ ] Weather icons sit centred over the rain bars of the hours they cover (one per hour on desktop/landscape, one per 2 h on phone portrait) and show the most significant weather in those hours
 - [ ] Each card has a readout row: "Now" (today) or a day summary; hovering / tapping / dragging horizontally across a chart shows that hour's temp, feels-like, rain and wind/gust (no floating tooltip)
 - [ ] Vertical swipes over a chart scroll the page
 - [ ] Search input triggers dropdown with up to 5 city results ("No cities match" when empty); Return picks the first result
 - [ ] Clicking a city reloads all charts with new location data; reload keeps that city
+- [ ] Gear button (left of refresh) opens Settings (bottom sheet on phone): band boundaries stay ascending, changes apply immediately without rebuilding charts, persist across reloads, and Reset restores defaults; feels-like line stays gray
 - [ ] Page scrolls smoothly between chart cards
 - [ ] Search bar stays pinned at the top while scrolling (portrait phone and desktop)
 - [ ] Layout looks good at desktop (900px+), mobile (375px / 402px) and phone landscape (874×402)

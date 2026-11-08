@@ -1,10 +1,16 @@
 // ─── Constants ───────────────────────────────────────────────────────────────
 const DEFAULT_LOCATION = { lat: 40.7644, lon: -73.9633, label: 'New York — Upper East Side' };
-const DEFAULT_WIND_MPH = 10;
-const STRONG_GUST_MPH = 30;          // wind dots turn red when gusts reach this
+const DEFAULT_WIND_MPH = 10;         // orange wind dot above this
+const DEFAULT_GUST_MPH = 30;         // red wind dot when gusts reach this
+const WIND_RANGE = [0, 30];          // choices offered in Settings
+const GUST_RANGE = [10, 60];
+// Temperature line colours: cold ≤ b0 < mild ≤ b1 < warm ≤ b2 < hot (°C)
+const DEFAULT_BANDS = [5, 15, 25];
+const BAND_COLORS = ['#4a90e2', '#4caf50', '#e8b84a', '#d94f4f']; // blue, green, yellow, red
+const BAND_RANGE = [-30, 45];
 const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
-const STORAGE_KEY = 'rlweather:v1';  // { lat, lon, label, wind }
+const STORAGE_KEY = 'rlweather:v1';  // { lat, lon, label, wind, gust, bands, colorBy }
 const STALE_ON_REOPEN_MS = 10 * 60 * 1000; // refetch when the app comes back after this long
 const MAX_AGE_MS = 30 * 60 * 1000;         // refetch while open once data is this old
 
@@ -27,6 +33,9 @@ let cards = [];                 // one per day: { chart, slots, isToday, selecte
 const cardOf = new WeakMap();   // canvas → card, read by the Chart.js plugins
 let current = { ...DEFAULT_LOCATION };
 let windThresholdMph = DEFAULT_WIND_MPH;
+let gustThresholdMph = DEFAULT_GUST_MPH;
+let tempBands = [...DEFAULT_BANDS];
+let colorBy = 'actual';         // 'actual' | 'feels' — which value picks the line colour
 let debounceTimer = null;
 let geocodeController = null;   // aborts superseded city searches
 let lastResults = [];           // results currently shown in the dropdown
@@ -136,18 +145,24 @@ function parseHourFromISO(iso) {
   return (h || 0) + ((m || 0) / 60);
 }
 
+// Each band's upper boundary belongs to it (exactly 5° with default bands is cold).
 function tempColor(val) {
   if (val == null) return COLORS.temp;
-  if (val > 25) return '#d94f4f';   // red — hot
-  if (val > 15) return '#e8b84a';   // yellow — warm
-  if (val > 5)  return '#4caf50';   // green — mild
-  return '#4a90e2';                  // blue — cold
+  const i = tempBands.findIndex(b => val <= b);
+  return BAND_COLORS[i === -1 ? 3 : i];
+}
+
+// Colour of the temperature line at hour i. The line always plots the actual
+// temperature; Settings decide whether its colour follows actual or feels-like.
+function lineColorAt(slots, i) {
+  const v = colorBy === 'feels' ? (slots.feels[i] ?? slots.temps[i]) : slots.temps[i];
+  return tempColor(v);
 }
 
 // 0 = calm, 1 = wind above the user's threshold, 2 = strong gusts
 function windLevels(wind, gust) {
   return wind.map((w, h) => {
-    if ((gust[h] ?? 0) >= STRONG_GUST_MPH) return 2;
+    if ((gust[h] ?? 0) >= gustThresholdMph) return 2;
     if ((w ?? 0) > windThresholdMph) return 1;
     return 0;
   });
@@ -162,13 +177,21 @@ function loadPrefs() {
     if (Number.isFinite(p.lat) && Number.isFinite(p.lon) && typeof p.label === 'string') {
       current = { lat: p.lat, lon: p.lon, label: p.label };
     }
-    if (Number.isInteger(p.wind) && p.wind >= 0 && p.wind <= 30) windThresholdMph = p.wind;
+    const inRange = (v, [lo, hi]) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (inRange(p.wind, WIND_RANGE)) windThresholdMph = p.wind;
+    if (inRange(p.gust, GUST_RANGE)) gustThresholdMph = p.gust;
+    if (Array.isArray(p.bands) && p.bands.length === 3 &&
+        p.bands.every(b => inRange(b, BAND_RANGE)) &&
+        p.bands[0] < p.bands[1] && p.bands[1] < p.bands[2]) tempBands = [...p.bands];
+    if (p.colorBy === 'actual' || p.colorBy === 'feels') colorBy = p.colorBy;
   } catch { /* storage unavailable (private mode) — use defaults */ }
 }
 
 function savePrefs() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, wind: windThresholdMph }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...current, wind: windThresholdMph, gust: gustThresholdMph, bands: tempBands, colorBy
+    }));
   } catch { /* ignore */ }
 }
 
@@ -399,7 +422,7 @@ const selectionPlugin = {
     ctx.stroke();
     const marks = [
       [card.slots.feels[idx], 'rgb(185, 188, 205)'],
-      [card.slots.temps[idx], tempColor(card.slots.temps[idx])]
+      [card.slots.temps[idx], lineColorAt(card.slots, idx)]
     ];
     marks.forEach(([v, color]) => {
       if (v == null) return;
@@ -693,7 +716,7 @@ function createDayCard(dayData, offsetSec) {
           yAxisID: 'yTemp',
           spanGaps: true,
           order: 1,
-          segment: { borderColor: ctx => tempColor(ctx.p0.parsed.y) }
+          segment: { borderColor: ctx => lineColorAt(s, ctx.p0DataIndex) }
         },
         {
           label: 'Feels like (°C)',
@@ -1075,9 +1098,51 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.search-container')) closeDropdown();
 });
 
-// ─── Wind threshold dropdown ─────────────────────────────────────────────────
+// ─── Settings ────────────────────────────────────────────────────────────────
+// Every change applies immediately and is saved; Done just closes the sheet.
 
-// Recolors the dots in place — no chart rebuild needed.
+const settingsDialog = document.getElementById('settings');
+const settingsBtn = document.getElementById('settings-btn');
+const gustSelect = document.getElementById('gust-select');
+const bandSelects = [0, 1, 2].map(i => document.getElementById('band-' + i));
+
+function fillSelect(sel, [from, to]) {
+  for (let v = from; v <= to; v++) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v < 0 ? '−' + -v : String(v);
+    sel.appendChild(opt);
+  }
+}
+
+// Reflect the current settings in the form. Band choices that would put the
+// boundaries out of order are disabled, so they always stay ascending.
+function syncSettingsForm() {
+  bandSelects.forEach((sel, i) => {
+    const lo = i > 0 ? tempBands[i - 1] : -Infinity;
+    const hi = i < 2 ? tempBands[i + 1] : Infinity;
+    for (const opt of sel.options) opt.disabled = +opt.value <= lo || +opt.value >= hi;
+    sel.value = tempBands[i];
+  });
+  const b = tempBands[2];
+  document.getElementById('band-hot').textContent = b < 0 ? '−' + -b : b;
+  settingsDialog.querySelector(`input[name="colorBy"][value="${colorBy}"]`).checked = true;
+  windSelect.value = windThresholdMph;
+  gustSelect.value = gustThresholdMph;
+}
+
+function renderLegend() {
+  document.getElementById('wind-legend').textContent = windThresholdMph;
+  document.getElementById('gust-threshold').textContent = gustThresholdMph;
+  document.getElementById('temp-legend-note').hidden = colorBy !== 'feels';
+}
+
+// Recolours the temperature lines (segment colours need an update, not just a draw).
+function applyTempColors() {
+  cards.forEach(c => c.chart.update('none'));
+}
+
+// Recolors the wind dots in place — no chart rebuild needed.
 function applyWindThreshold() {
   cards.forEach(c => {
     c.levels = windLevels(c.slots.wind, c.slots.gust);
@@ -1085,11 +1150,55 @@ function applyWindThreshold() {
   });
 }
 
+function settingsChanged({ colors = false, wind = false } = {}) {
+  savePrefs();
+  syncSettingsForm();
+  renderLegend();
+  if (colors) applyTempColors();
+  if (wind) applyWindThreshold();
+}
+
+bandSelects.forEach((sel, i) => sel.addEventListener('change', () => {
+  tempBands[i] = parseInt(sel.value, 10);
+  settingsChanged({ colors: true });
+}));
+
+settingsDialog.querySelectorAll('input[name="colorBy"]').forEach(radio =>
+  radio.addEventListener('change', () => {
+    colorBy = radio.value;
+    settingsChanged({ colors: true });
+  }));
+
 windSelect.addEventListener('change', () => {
   windThresholdMph = parseInt(windSelect.value, 10);
-  savePrefs();
-  applyWindThreshold();
+  settingsChanged({ wind: true });
 });
+
+gustSelect.addEventListener('change', () => {
+  gustThresholdMph = parseInt(gustSelect.value, 10);
+  settingsChanged({ wind: true });
+});
+
+document.getElementById('settings-reset').addEventListener('click', () => {
+  tempBands = [...DEFAULT_BANDS];
+  colorBy = 'actual';
+  windThresholdMph = DEFAULT_WIND_MPH;
+  gustThresholdMph = DEFAULT_GUST_MPH;
+  settingsChanged({ colors: true, wind: true });
+});
+
+settingsBtn.addEventListener('click', () => {
+  syncSettingsForm();
+  settingsDialog.showModal();
+});
+
+// Tapping the dimmed backdrop closes the sheet (the form fills the dialog,
+// so a click whose target is the dialog itself landed outside the content).
+settingsDialog.addEventListener('click', e => {
+  if (e.target === settingsDialog) settingsDialog.close();
+});
+// Back to the gear button for keyboard users, without scrolling the page.
+settingsDialog.addEventListener('close', () => settingsBtn.focus({ preventScroll: true }));
 
 // ─── Refresh button ──────────────────────────────────────────────────────────
 refreshBtn.addEventListener('click', async () => {
@@ -1104,13 +1213,10 @@ refreshBtn.addEventListener('click', async () => {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 loadPrefs();
-for (let i = 0; i <= 30; i++) {
-  const opt = document.createElement('option');
-  opt.value = i;
-  opt.textContent = i;
-  opt.selected = i === windThresholdMph;
-  windSelect.appendChild(opt);
-}
-document.getElementById('gust-threshold').textContent = STRONG_GUST_MPH;
+fillSelect(windSelect, WIND_RANGE);
+fillSelect(gustSelect, GUST_RANGE);
+bandSelects.forEach(sel => fillSelect(sel, BAND_RANGE));
+syncSettingsForm();
+renderLegend();
 locationLabel.textContent = current.label;
 loadWeather(current.lat, current.lon, current.label);

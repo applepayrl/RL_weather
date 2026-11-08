@@ -19,7 +19,7 @@
   <link rel="manifest" href="manifest.json">
 
   <!-- ?v= values are content hashes, rewritten by .githooks/pre-commit -->
-  <link rel="stylesheet" href="style.css?v=9aad8ac3">
+  <link rel="stylesheet" href="style.css?v=15dd7a7f">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
           integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
           crossorigin="anonymous"></script>
@@ -31,12 +31,21 @@
     <header class="header">
       <div class="header-row">
         <h1>5-Day Forecast</h1>
-        <button type="button" id="refresh-btn" class="refresh-btn" aria-label="Refresh forecast" title="Refresh">
+        <div class="header-actions">
+        <button type="button" id="settings-btn" class="icon-btn" aria-label="Settings" title="Settings"
+                aria-haspopup="dialog" aria-controls="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <button type="button" id="refresh-btn" class="icon-btn refresh-btn" aria-label="Refresh forecast" title="Refresh">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
             <polyline points="21 3 21 8 16 8"/>
           </svg>
         </button>
+        </div>
       </div>
       <p class="subline">
         <span id="location-label"></span>
@@ -60,15 +69,11 @@
 
     <!-- Global legend -->
     <div class="legend-bar">
-      <div class="legend-item"><span class="legend-swatch temp" aria-hidden="true"></span> Temp °C</div>
+      <div class="legend-item"><span class="legend-swatch temp" aria-hidden="true"></span><span>Temp °C<span id="temp-legend-note" hidden> (colour by feels like)</span></span></div>
       <div class="legend-item"><span class="legend-swatch feels" aria-hidden="true"></span> Feels like</div>
       <div class="legend-item"><span class="legend-swatch precip" aria-hidden="true"></span> Rain mm</div>
-      <div class="legend-item">
-        <span class="legend-swatch wind" aria-hidden="true"></span>
-        <label for="wind-threshold">Wind &gt;</label>
-        <select id="wind-threshold" class="wind-select"></select> mph
-      </div>
-      <div class="legend-item"><span class="legend-swatch gust" aria-hidden="true"></span> Gusts ≥ <span id="gust-threshold"></span> mph</div>
+      <div class="legend-item"><span class="legend-swatch wind" aria-hidden="true"></span><span>Wind &gt; <span id="wind-legend"></span> mph</span></div>
+      <div class="legend-item"><span class="legend-swatch gust" aria-hidden="true"></span><span>Gusts ≥ <span id="gust-threshold"></span> mph</span></div>
     </div>
 
     <!-- Loading indicator -->
@@ -81,6 +86,71 @@
     <div id="charts-container"></div>
   </div>
 
-  <script src="app.js?v=74b96231"></script>
+  <!-- Settings sheet: changes apply immediately and are remembered -->
+  <dialog id="settings" class="settings" aria-labelledby="settings-title">
+    <form method="dialog" class="settings-form">
+      <div class="settings-head">
+        <h2 id="settings-title">Settings</h2>
+        <button type="submit" class="settings-done">Done</button>
+      </div>
+
+      <section class="settings-group" aria-labelledby="temp-colours-title">
+        <h3 id="temp-colours-title">Temperature line colours</h3>
+        <div class="segmented" role="radiogroup" aria-label="Choose colours from">
+          <label><input type="radio" name="colorBy" value="actual"><span>Actual temp</span></label>
+          <label><input type="radio" name="colorBy" value="feels"><span>Feels like</span></label>
+        </div>
+        <p class="settings-note">Only the temperature line is coloured. The feels-like line always stays gray.</p>
+        <div class="setting-row">
+          <span class="dot" style="--c: #4a90e2" aria-hidden="true"></span>
+          <label class="setting-label" for="band-0">Cold</label>
+          <span class="setting-pre">up to</span>
+          <select id="band-0" class="setting-select"></select>
+          <span class="setting-unit">°C</span>
+        </div>
+        <div class="setting-row">
+          <span class="dot" style="--c: #4caf50" aria-hidden="true"></span>
+          <label class="setting-label" for="band-1">Mild</label>
+          <span class="setting-pre">up to</span>
+          <select id="band-1" class="setting-select"></select>
+          <span class="setting-unit">°C</span>
+        </div>
+        <div class="setting-row">
+          <span class="dot" style="--c: #e8b84a" aria-hidden="true"></span>
+          <label class="setting-label" for="band-2">Warm</label>
+          <span class="setting-pre">up to</span>
+          <select id="band-2" class="setting-select"></select>
+          <span class="setting-unit">°C</span>
+        </div>
+        <div class="setting-row">
+          <span class="dot" style="--c: #d94f4f" aria-hidden="true"></span>
+          <span class="setting-label">Hot</span>
+          <span class="setting-pre">above</span>
+          <span class="setting-value" id="band-hot"></span>
+          <span class="setting-unit">°C</span>
+        </div>
+      </section>
+
+      <section class="settings-group" aria-labelledby="wind-title">
+        <h3 id="wind-title">Wind dots</h3>
+        <div class="setting-row">
+          <span class="dot" style="--c: var(--accent-wind)" aria-hidden="true"></span>
+          <label class="setting-label" for="wind-threshold">Wind above</label>
+          <select id="wind-threshold" class="setting-select"></select>
+          <span class="setting-unit">mph</span>
+        </div>
+        <div class="setting-row">
+          <span class="dot" style="--c: var(--accent-gust)" aria-hidden="true"></span>
+          <label class="setting-label" for="gust-select">Gusts at or above</label>
+          <select id="gust-select" class="setting-select"></select>
+          <span class="setting-unit">mph</span>
+        </div>
+      </section>
+
+      <button type="button" id="settings-reset" class="settings-reset">Reset to defaults</button>
+    </form>
+  </dialog>
+
+  <script src="app.js?v=2a6d3f29"></script>
 </body>
 </html>

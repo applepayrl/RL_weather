@@ -107,7 +107,13 @@ body::after {
   background-clip: text;
 }
 
-.refresh-btn {
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
   flex-shrink: 0;
   width: 44px;   /* Apple HIG minimum tap target */
   height: 44px;
@@ -124,8 +130,8 @@ body::after {
   -webkit-tap-highlight-color: transparent;
 }
 
-.refresh-btn:active { transform: scale(0.92); }
-.refresh-btn svg { width: 20px; height: 20px; }
+.icon-btn:active { transform: scale(0.92); }
+.icon-btn svg { width: 20px; height: 20px; }
 .refresh-btn.spinning svg { animation: spin 0.8s linear infinite; }
 
 .subline {
@@ -279,7 +285,10 @@ body::after {
   flex-shrink: 0;
 }
 
-.legend-swatch.temp { background: var(--accent-temp); }
+.legend-swatch.temp {
+  width: 20px;
+  background: linear-gradient(90deg, #4a90e2 0 25%, #4caf50 25% 50%, #e8b84a 50% 75%, #d94f4f 75%);
+}
 .legend-swatch.feels { height: 2px; background: var(--feels); }
 .legend-swatch.precip {
   background: var(--accent-precip);
@@ -294,19 +303,6 @@ body::after {
   background: var(--accent-wind);
 }
 .legend-swatch.gust { background: var(--accent-gust); }
-
-.wind-select {
-  font-size: 16px; /* < 16px makes iOS Safari zoom in on focus */
-  color: var(--text-primary);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 1px 4px;
-  cursor: pointer;
-  outline: none;
-}
-
-.wind-select:focus-visible { border-color: var(--accent-wind); }
 
 /* ─── Loading ────────────────────────────────────────────────────────────── */
 #loading {
@@ -479,15 +475,173 @@ body::after {
   cursor: pointer;
 }
 
+/* ─── Settings sheet ─────────────────────────────────────────────────────── */
+/* Centred panel on wide screens, bottom sheet on phones (see below). */
+.settings {
+  width: min(440px, calc(100% - 32px));
+  max-width: none;
+  max-height: min(88dvh, 680px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: 0 12px 60px rgba(0,0,0,0.55);
+  overscroll-behavior: contain;
+}
+.settings::backdrop { background: rgba(0,0,0,0.55); }
+.settings[open] { animation: sheet-in 0.22s ease-out; }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(24px); } }
+body:has(.settings[open]) { overflow: hidden; }
+
+.settings-form { padding: 0 18px 18px; }
+
+.settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  background: var(--surface);
+}
+.settings-head h2 { font-size: 1.1rem; font-weight: 600; }
+
+.settings-done {
+  min-height: 44px;
+  padding: 0 2px 0 16px;
+  background: none;
+  border: 0;
+  color: var(--accent-precip);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-group {
+  padding: 14px 0 6px;
+  border-top: 1px solid var(--border);
+}
+.settings-group h3 {
+  margin-bottom: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.settings-note {
+  margin: 8px 0 4px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* iOS-style segmented control built from radio buttons */
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.segmented label { position: relative; }
+.segmented input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.segmented span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+}
+.segmented input:checked + span {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+}
+.segmented input:focus-visible + span { outline: 2px solid var(--accent-precip); outline-offset: -2px; }
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+}
+.setting-row + .setting-row { border-top: 1px solid var(--border); }
+.setting-row .dot {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--c);
+}
+.setting-label { flex: 1; font-size: 0.95rem; }
+.setting-pre { font-size: 0.85rem; color: var(--text-muted); }
+.setting-unit { width: 2.2em; font-size: 0.85rem; color: var(--text-secondary); }
+
+.setting-select,
+.setting-value {
+  min-width: 76px;
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 16px; /* < 16px makes iOS Safari zoom in on focus */
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.setting-select {
+  /* Own chevron so the number sits at the same spot in every browser */
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 28px;
+  background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a4a4b4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.setting-select:focus-visible { outline: 2px solid var(--accent-precip); outline-offset: 1px; }
+.setting-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 29px; /* matches .setting-select text + border */
+  color: var(--text-secondary);
+}
+
+.settings-reset {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
 /* ─── Hover (only where a real pointer exists) ───────────────────────────── */
 /* On iPhone a tap triggers :hover and it sticks until you tap elsewhere. */
 @media (hover: hover) {
-  .refresh-btn:hover {
+  .icon-btn:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
   }
   .dropdown-item:hover { background: var(--surface-hover); }
-  .retry-btn:hover { background: var(--surface-hover); }
+  .retry-btn:hover,
+  .settings-reset:hover { background: var(--surface-hover); }
   .chart-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 30px rgba(0,0,0,0.4);
@@ -504,6 +658,14 @@ body::after {
   .canvas-wrap { height: 180px; }
   .weather-icon-strip { --icon-max: 16px; height: 22px; }
   .legend-bar { gap: 6px 12px; }
+  /* Bottom sheet */
+  .settings {
+    width: 100%;
+    margin: auto 0 0;
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+  }
+  .settings-form { padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* ─── Phone landscape ────────────────────────────────────────────────────── */
@@ -531,6 +693,7 @@ body::after {
     scroll-behavior: auto !important;
   }
   .chart-card:hover { transform: none; }
+  .settings[open] { animation: none; }
   /* Spinners stay (they signal loading) but turn slowly */
   #loading .spinner,
   .refresh-btn.spinning svg { animation-duration: 2s; }
