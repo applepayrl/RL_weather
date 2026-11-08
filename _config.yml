@@ -1,0 +1,6 @@
+# GitHub Pages builds this repo with Jekyll. Files listed here are not
+# published to the live site (dotfiles/dot-folders like .githooks and
+# .claude are already excluded by Jekyll).
+exclude:
+  - CLAUDE.md
+  - make_icon.py

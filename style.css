@@ -1,20 +1,26 @@
-/* ─── Fonts ──────────────────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@600;700&display=swap');
-
 /* ─── Custom properties ──────────────────────────────────────────────────── */
+/* System fonts only (SF Pro / SF Mono on iPhone): nothing to download, and
+   the chart canvases never render with a fallback font. */
 :root {
+  color-scheme: dark;
   --bg: #0f1117;
   --surface: #181a23;
   --surface-hover: #1f2230;
-  --border: rgba(255,255,255,0.06);
+  --border: rgba(255,255,255,0.08);
   --text-primary: #e8e8ed;
-  --text-secondary: #8a8a9a;
-  --text-muted: #55566a;
+  --text-secondary: #a4a4b4; /* 7:1 on --surface */
+  --text-muted: #8c8da0;     /* 5:1 on --surface (WCAG AA) */
   --accent-temp: #d94f4f;
-  --accent-precip: #4a90e2;
+  --accent-precip: #5a9ae6;
   --accent-wind: #e07a3a;
+  --accent-gust: #ef4444;
+  --feels: #b9bccd;
   --card-radius: 14px;
   --shadow-card: 0 2px 20px rgba(0,0,0,0.35);
+  --gutter: 20px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --font-sans: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 /* ─── Reset & base ───────────────────────────────────────────────────────── */
@@ -24,22 +30,28 @@ html {
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  font-family: 'DM Sans', system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text-primary);
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
-  /* Reserve space for iPhone notch / Dynamic Island / home indicator
-     when launched from the home screen in standalone mode. */
-  padding-top: env(safe-area-inset-top, 0px);
+  /* Disable double-tap-to-zoom (taps on charts kept zooming the page);
+     pinch-zoom still works. */
+  touch-action: manipulation;
+  /* Reserve space for the Dynamic Island / home indicator / landscape
+     notch when launched from the home screen in standalone mode. */
+  padding-top: var(--safe-top);
   padding-right: env(safe-area-inset-right, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   padding-left: env(safe-area-inset-left, 0px);
-  box-sizing: border-box;
 }
+
+button, input, select { font: inherit; color: inherit; }
 
 /* Subtle noise texture on body */
 body::before {
@@ -51,28 +63,54 @@ body::before {
   z-index: 0;
 }
 
+/* Opaque strip behind the status bar so content scrolling under the sticky
+   search bar doesn't show through the clock / Dynamic Island area. */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--safe-top);
+  background: var(--bg);
+  z-index: 60;
+  pointer-events: none;
+}
+
 /* ─── App shell ──────────────────────────────────────────────────────────── */
 .app {
   position: relative;
   z-index: 1;
   max-width: 900px;
   margin: 0 auto;
-  padding: 32px 20px 60px;
+  padding: 16px var(--gutter) 48px;
 }
 
 /* ─── Header ─────────────────────────────────────────────────────────────── */
-.header {
-  position: relative;
-  text-align: center;
-  margin-bottom: 32px;
+.header { margin-bottom: 4px; }
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header h1 {
+  font-weight: 700;
+  font-size: 1.75rem;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  background: linear-gradient(135deg, var(--text-primary) 40%, var(--accent-precip));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .refresh-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 40px;
-  height: 40px;
+  flex-shrink: 0;
+  width: 44px;   /* Apple HIG minimum tap target */
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -86,58 +124,46 @@ body::before {
   -webkit-tap-highlight-color: transparent;
 }
 
-.refresh-btn:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
+.refresh-btn:active { transform: scale(0.92); }
+.refresh-btn svg { width: 20px; height: 20px; }
+.refresh-btn.spinning svg { animation: spin 0.8s linear infinite; }
+
+.subline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+  margin-top: 2px;
 }
 
-.refresh-btn:active {
-  transform: scale(0.92);
-}
-
-.refresh-btn svg {
-  width: 18px;
-  height: 18px;
-}
-
-.refresh-btn.spinning svg {
-  animation: spin 0.8s linear infinite;
-}
-
-.header h1 {
-  font-family: 'Playfair Display', serif;
-  font-weight: 700;
-  font-size: 2rem;
-  letter-spacing: -0.02em;
-  margin-bottom: 4px;
-  background: linear-gradient(135deg, var(--text-primary) 40%, var(--accent-precip));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.header .tagline {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  font-weight: 400;
+#location-label {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .last-updated {
   font-size: 0.75rem;
   color: var(--text-muted);
-  margin-top: 4px;
 }
 
-/* ─── Search ─────────────────────────────────────────────────────────────── */
+/* ─── Search (sticky) ────────────────────────────────────────────────────── */
+.toolbar {
+  position: sticky;
+  top: var(--safe-top);
+  z-index: 40;
+  background: var(--bg);
+  margin: 0 calc(-1 * var(--gutter));
+  padding: 10px var(--gutter);
+}
+
 .search-container {
   position: relative;
-  max-width: 420px;
-  margin: 0 auto 12px;
+  max-width: 520px;
 }
 
-.search-input-wrap {
-  position: relative;
-}
+.search-input-wrap { position: relative; }
 
 .search-input-wrap svg {
   position: absolute;
@@ -153,10 +179,12 @@ body::before {
 }
 
 #search-input {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  padding: 12px 16px 12px 42px;
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.95rem;
+  height: 44px;
+  padding: 0 14px 0 42px;
+  font-size: 16px; /* < 16px makes iOS Safari zoom in on focus */
   color: var(--text-primary);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -190,20 +218,28 @@ body::before {
 .search-dropdown.open { display: block; }
 
 .dropdown-item {
-  padding: 11px 16px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 16px;
+  background: none;
+  border: 0;
+  text-align: left;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
   transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.dropdown-item:hover { background: var(--surface-hover); }
+.dropdown-item + .dropdown-item { border-top: 1px solid var(--border); }
+.dropdown-item:active,
+.dropdown-item:focus-visible { background: var(--surface-hover); outline: none; }
 
 .dropdown-item strong {
   font-weight: 600;
-  font-size: 0.93rem;
+  font-size: 0.95rem;
 }
 
 .dropdown-item .region {
@@ -213,14 +249,64 @@ body::before {
   flex-shrink: 0;
 }
 
-/* Location label */
-#location-label {
-  text-align: center;
-  font-size: 1.05rem;
-  font-weight: 500;
+.dropdown-empty {
+  padding: 12px 16px;
+  font-size: 0.9rem;
   color: var(--text-secondary);
-  margin-bottom: 28px;
 }
+
+/* ─── Legend ─────────────────────────────────────────────────────────────── */
+.legend-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 2px 0 14px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.legend-swatch {
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legend-swatch.temp { background: var(--accent-temp); }
+.legend-swatch.feels { height: 2px; background: var(--feels); }
+.legend-swatch.precip {
+  background: var(--accent-precip);
+  height: 10px;
+  width: 8px;
+}
+.legend-swatch.wind,
+.legend-swatch.gust {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-wind);
+}
+.legend-swatch.gust { background: var(--accent-gust); }
+
+.wind-select {
+  font-size: 16px; /* < 16px makes iOS Safari zoom in on focus */
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.wind-select:focus-visible { border-color: var(--accent-wind); }
 
 /* ─── Loading ────────────────────────────────────────────────────────────── */
 #loading {
@@ -249,29 +335,33 @@ body::before {
 #charts-container {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  transition: opacity 0.2s;
+}
+
+/* Previous forecast stays visible (dimmed) while a new one loads */
+#charts-container.is-loading {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .chart-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
-  padding: 22px 22px 18px;
+  padding: 16px 18px 12px;
   box-shadow: var(--shadow-card);
   transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.chart-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 30px rgba(0,0,0,0.4);
+  /* No text selection / callout when long-pressing a chart on iOS */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .chart-title {
-  font-family: 'DM Sans', sans-serif;
   font-weight: 600;
   font-size: 1.05rem;
   color: var(--text-primary);
-  margin-bottom: 2px;
 }
 
 .chart-subtitle {
@@ -280,22 +370,47 @@ body::before {
   color: var(--text-secondary);
 }
 
-.wind-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-bottom: 10px;
+/* Readout row: values for the selected hour (or Now / day summary) */
+.readout {
+  display: grid;
+  grid-template-columns: 2.9em repeat(3, minmax(0, 1fr)) minmax(0, 1.5fr);
+  align-items: end;
+  gap: 0 8px;
+  margin: 8px 0 6px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.035);
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
 }
 
-.wind-dot-sample {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-wind);
+.ro-time {
+  align-self: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
 }
+
+.ro-cell { display: flex; flex-direction: column; min-width: 0; }
+
+.ro-label {
+  font-size: 0.6875rem; /* 11px */
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ro-value {
+  font-size: 0.95rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ro-cell.feels .ro-value { color: var(--feels); }
+.ro-cell.rain .ro-value { color: var(--accent-precip); }
+.ro-cell.wind .ro-value { color: var(--accent-wind); }
 
 .weather-icon-strip {
   position: relative;
@@ -315,6 +430,8 @@ body::before {
   justify-content: center;
 }
 
+.weather-icon-strip .weather-icon.past { opacity: 0.35; }
+
 .weather-icon-strip .weather-icon svg {
   width: 22px;
   height: 22px;
@@ -327,60 +444,13 @@ body::before {
 
 .canvas-wrap canvas {
   display: block;
-}
-
-/* ─── Inline legend (custom, below header) ────────────────────────────────── */
-.legend-bar {
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  margin-bottom: 28px;
-  flex-wrap: wrap;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-
-.legend-swatch {
-  width: 14px;
-  height: 4px;
-  border-radius: 2px;
-}
-
-.legend-swatch.temp { background: var(--accent-temp); }
-.legend-swatch.precip {
-  background: var(--accent-precip);
-  height: 10px;
-  width: 8px;
-  border-radius: 2px;
-}
-.legend-swatch.wind {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-wind);
-}
-
-.wind-select {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.8rem;
-  color: var(--text-primary);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 2px 4px;
-  cursor: pointer;
+  /* Vertical swipes scroll the page; horizontal drags scrub through hours */
+  touch-action: pan-y pinch-zoom;
+  border-radius: 4px;
   outline: none;
 }
 
-.wind-select:focus {
-  border-color: var(--accent-wind);
-}
+.canvas-wrap canvas:focus-visible { box-shadow: 0 0 0 2px var(--accent-precip); }
 
 /* ─── Error state ────────────────────────────────────────────────────────── */
 .error-msg {
@@ -392,17 +462,77 @@ body::before {
 }
 
 .error-msg small {
+  display: block;
   color: var(--text-muted);
 }
 
-/* ─── Responsive ─────────────────────────────────────────────────────────── */
+.retry-btn {
+  margin-top: 16px;
+  min-height: 44px;
+  padding: 0 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+/* ─── Hover (only where a real pointer exists) ───────────────────────────── */
+/* On iPhone a tap triggers :hover and it sticks until you tap elsewhere. */
+@media (hover: hover) {
+  .refresh-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+  .dropdown-item:hover { background: var(--surface-hover); }
+  .retry-btn:hover { background: var(--surface-hover); }
+  .chart-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 30px rgba(0,0,0,0.4);
+  }
+}
+
+/* ─── Phone portrait ─────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
-  .app { padding: 20px 12px 40px; }
-  .header h1 { font-size: 1.5rem; }
-  .chart-card { padding: 16px 14px 14px; }
+  :root { --gutter: 12px; }
+  .app { padding-top: 10px; padding-bottom: 32px; }
+  .header h1 { font-size: 1.4rem; }
+  .chart-card { padding: 12px 12px 8px; }
+  .readout { gap: 0 6px; padding: 5px 8px; }
   .canvas-wrap { height: 180px; }
   .weather-icon-strip { height: 22px; }
   .weather-icon-strip .weather-icon { width: 16px; height: 16px; }
   .weather-icon-strip .weather-icon svg { width: 16px; height: 16px; }
-  .legend-bar { gap: 14px; }
+  .legend-bar { gap: 6px 12px; }
+}
+
+/* ─── Phone landscape ────────────────────────────────────────────────────── */
+/* Short and wide: one card should fit on screen at a time. The search bar
+   stops being sticky (vertical space is scarce) and cards snap gently. */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root { --gutter: 16px; }
+  html { scroll-snap-type: y proximity; }
+  .app { max-width: none; padding-top: 8px; padding-bottom: 24px; }
+  .header h1 { font-size: 1.3rem; }
+  .toolbar { position: static; margin: 0; padding: 6px 0; }
+  .chart-card {
+    padding: 10px 16px 6px;
+    scroll-snap-align: start;
+    scroll-margin-top: 8px;
+  }
+  .readout { margin: 4px 0; }
+  .canvas-wrap { height: clamp(150px, calc(100dvh - 150px), 260px); }
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .chart-card:hover { transform: none; }
+  /* Spinners stay (they signal loading) but turn slowly */
+  #loading .spinner,
+  .refresh-btn.spinning svg { animation-duration: 2s; }
+  html { scroll-snap-type: none; }
 }
