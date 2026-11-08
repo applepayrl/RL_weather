@@ -783,6 +783,14 @@ function createDayCard(dayData, offsetSec) {
     const { step, size } = iconLayout((area.right - area.left) / 24,
       parseFloat(getComputedStyle(iconStrip).getPropertyValue('--icon-max')) || 22);
     iconStrip.style.setProperty('--icon-size', size + 'px');
+    // Centre icons vertically between the readout row and the top of the
+    // plot area (the canvas has headroom above the plot for the y labels).
+    const stripRect = iconStrip.getBoundingClientRect();
+    const gapTop = card.readout.el.getBoundingClientRect().bottom;
+    const gapBottom = chart.canvas.getBoundingClientRect().top + area.top;
+    const iconTop = (gapTop + gapBottom) / 2 - stripRect.top - size / 2;
+    iconStrip.style.setProperty('--icon-top',
+      Math.max(0, iconTop).toFixed(1) + 'px');
     const x = chart.scales.x;
     const nowHour = card.isToday ? locationNow(card.offsetSec).hour : -1;
     // Each icon covers a block of `step` hours, sits centred over that
