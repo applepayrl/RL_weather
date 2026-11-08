@@ -4,13 +4,23 @@ const DEFAULT_WIND_MPH = 10;         // orange wind dot above this
 const DEFAULT_GUST_MPH = 30;         // red wind dot when gusts reach this
 const WIND_RANGE = [0, 30];          // choices offered in Settings
 const GUST_RANGE = [10, 60];
-// Temperature line colours: cold ≤ b0 < mild ≤ b1 < warm ≤ b2 < hot (°C)
+// Temperature line colors: cold ≤ b0 < mild ≤ b1 < warm ≤ b2 < hot (°C)
 const DEFAULT_BANDS = [5, 15, 25];
 const BAND_COLORS = ['#4a90e2', '#4caf50', '#e8b84a', '#d94f4f']; // blue, green, yellow, red
 const BAND_RANGE = [-30, 45];
 const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
-const STORAGE_KEY = 'rlweather:v1';  // { lat, lon, label, wind, gust, bands, colorBy }
+const STORAGE_KEY = 'rlweather:v1';  // { lat, lon, label, wind, gust, bands, colorBy, model }
+// Forecast source. 'auto' lets Open-Meteo pick per location; 'nbm' asks for
+// NOAA's National Blend of Models and falls back to the pick where NBM has
+// no data (outside the continental US / southern Canada).
+const NBM_MODEL = 'ncep_nbm_conus';
+const SOURCE_LABELS = {
+  auto: 'Open-Meteo pick',
+  nbm: 'NOAA NBM',
+  'nbm-partial': 'NOAA NBM + Open-Meteo pick',
+  'nbm-unavailable': 'Open-Meteo pick (NBM not available here)'
+};
 const STALE_ON_REOPEN_MS = 10 * 60 * 1000; // refetch when the app comes back after this long
 const MAX_AGE_MS = 30 * 60 * 1000;         // refetch while open once data is this old
 
@@ -35,7 +45,8 @@ let current = { ...DEFAULT_LOCATION };
 let windThresholdMph = DEFAULT_WIND_MPH;
 let gustThresholdMph = DEFAULT_GUST_MPH;
 let tempBands = [...DEFAULT_BANDS];
-let colorBy = 'actual';         // 'actual' | 'feels' — which value picks the line colour
+let colorBy = 'actual';         // 'actual' | 'feels' — which value picks the line color
+let forecastModel = 'auto';     // 'auto' | 'nbm'
 let debounceTimer = null;
 let geocodeController = null;   // aborts superseded city searches
 let lastResults = [];           // results currently shown in the dropdown
@@ -152,8 +163,8 @@ function tempColor(val) {
   return BAND_COLORS[i === -1 ? 3 : i];
 }
 
-// Colour of the temperature line at hour i. The line always plots the actual
-// temperature; Settings decide whether its colour follows actual or feels-like.
+// Color of the temperature line at hour i. The line always plots the actual
+// temperature; Settings decide whether its color follows actual or feels-like.
 function lineColorAt(slots, i) {
   const v = colorBy === 'feels' ? (slots.feels[i] ?? slots.temps[i]) : slots.temps[i];
   return tempColor(v);
@@ -184,13 +195,15 @@ function loadPrefs() {
         p.bands.every(b => inRange(b, BAND_RANGE)) &&
         p.bands[0] < p.bands[1] && p.bands[1] < p.bands[2]) tempBands = [...p.bands];
     if (p.colorBy === 'actual' || p.colorBy === 'feels') colorBy = p.colorBy;
+    if (p.model === 'auto' || p.model === 'nbm') forecastModel = p.model;
   } catch { /* storage unavailable (private mode) — use defaults */ }
 }
 
 function savePrefs() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      ...current, wind: windThresholdMph, gust: gustThresholdMph, bands: tempBands, colorBy
+      ...current, wind: windThresholdMph, gust: gustThresholdMph, bands: tempBands, colorBy,
+      model: forecastModel
     }));
   } catch { /* ignore */ }
 }
@@ -480,19 +493,46 @@ const CHART_CHROME_PX = 55; // measured: canvas height − plot-area height
 
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
-async function fetchForecast(lat, lon) {
+const HOURLY_VARS = ['temperature_2m', 'apparent_temperature', 'precipitation',
+  'wind_speed_10m', 'wind_gusts_10m', 'weather_code'];
+const DAILY_VARS = ['sunrise', 'sunset'];
+
+// Returns Open-Meteo's response with plain variable names and a `source`
+// key (see SOURCE_LABELS) saying which model the numbers came from.
+async function fetchForecast(lat, lon, model) {
   const params = new URLSearchParams({
     latitude: lat,
     longitude: lon,
-    hourly: 'temperature_2m,apparent_temperature,precipitation,wind_speed_10m,wind_gusts_10m,weather_code',
-    daily: 'sunrise,sunset',
+    hourly: HOURLY_VARS.join(','),
+    daily: DAILY_VARS.join(','),
     wind_speed_unit: 'mph',
     timezone: 'auto',
     forecast_days: 5
   });
+  // Both models in one request, so the fallback costs no extra round trip.
+  if (model === 'nbm') params.set('models', `${NBM_MODEL},best_match`);
   const resp = await fetch(`${FORECAST_URL}?${params}`);
   if (!resp.ok) throw new Error(`Forecast API returned ${resp.status}`);
-  return resp.json();
+  const data = await resp.json();
+  return model === 'nbm' ? mergeNbm(data) : { ...data, source: 'auto' };
+}
+
+// With two models requested, Open-Meteo suffixes each variable with the model
+// name (temperature_2m_ncep_nbm_conus, temperature_2m_best_match). Outside
+// NBM's area it returns only the plain names. Use NBM wherever it has a
+// value and fill any gaps from Open-Meteo's pick.
+function mergeNbm(data) {
+  const H = data.hourly;
+  const D = data.daily;
+  if (!(`temperature_2m_${NBM_MODEL}` in H)) return { ...data, source: 'nbm-unavailable' };
+  const pick = (block, v, i) => block[`${v}_${NBM_MODEL}`]?.[i] ?? block[`${v}_best_match`]?.[i] ?? null;
+  const hourly = { time: H.time };
+  HOURLY_VARS.forEach(v => { hourly[v] = H.time.map((_, i) => pick(H, v, i)); });
+  const daily = { time: D.time };
+  DAILY_VARS.forEach(v => { daily[v] = D.time.map((_, i) => pick(D, v, i)); });
+  const nbmHours = H[`temperature_2m_${NBM_MODEL}`].filter(x => x != null).length;
+  const source = nbmHours === H.time.length ? 'nbm' : nbmHours === 0 ? 'nbm-unavailable' : 'nbm-partial';
+  return { ...data, hourly, daily, source };
 }
 
 async function fetchGeocode(query, signal) {
@@ -806,7 +846,7 @@ function createDayCard(dayData, offsetSec) {
     const { step, size } = iconLayout((area.right - area.left) / 24,
       parseFloat(getComputedStyle(iconStrip).getPropertyValue('--icon-max')) || 22);
     iconStrip.style.setProperty('--icon-size', size + 'px');
-    // Centre icons vertically between the readout row and the top of the
+    // Center icons vertically between the readout row and the top of the
     // plot area (the canvas has headroom above the plot for the y labels).
     const stripRect = iconStrip.getBoundingClientRect();
     const gapTop = card.readout.el.getBoundingClientRect().bottom;
@@ -816,7 +856,7 @@ function createDayCard(dayData, offsetSec) {
       Math.max(0, iconTop).toFixed(1) + 'px');
     const x = chart.scales.x;
     const nowHour = card.isToday ? locationNow(card.offsetSec).hour : -1;
-    // Each icon covers a block of `step` hours, sits centred over that
+    // Each icon covers a block of `step` hours, sits centered over that
     // block's rain bars, and shows the block's most significant weather —
     // so rain in any covered hour always gets a rain icon above it.
     for (let b = 0; b < 24; b += step) {
@@ -932,14 +972,14 @@ async function loadWeather(lat, lon, label) {
   chartsContainer.setAttribute('aria-busy', 'true');
 
   try {
-    const data = await fetchForecast(lat, lon);
+    const data = await fetchForecast(lat, lon, forecastModel);
     if (seq !== loadSeq) return;
     lastForecastData = data;
     current = { lat, lon, label: label ?? current.label };
     locationLabel.textContent = current.label;
     savePrefs();
     lastUpdatedAt = new Date();
-    lastUpdatedEl.textContent = 'Updated ' + formatUpdated(lastUpdatedAt);
+    lastUpdatedEl.textContent = `Updated ${formatUpdated(lastUpdatedAt)} · ${SOURCE_LABELS[data.source]}`;
     renderForecast(data);
   } catch (err) {
     if (seq !== loadSeq) return;
@@ -1127,6 +1167,7 @@ function syncSettingsForm() {
   const b = tempBands[2];
   document.getElementById('band-hot').textContent = b < 0 ? '−' + -b : b;
   settingsDialog.querySelector(`input[name="colorBy"][value="${colorBy}"]`).checked = true;
+  settingsDialog.querySelector(`input[name="model"][value="${forecastModel}"]`).checked = true;
   windSelect.value = windThresholdMph;
   gustSelect.value = gustThresholdMph;
 }
@@ -1137,7 +1178,7 @@ function renderLegend() {
   document.getElementById('temp-legend-note').hidden = colorBy !== 'feels';
 }
 
-// Recolours the temperature lines (segment colours need an update, not just a draw).
+// Recolors the temperature lines (segment colors need an update, not just a draw).
 function applyTempColors() {
   cards.forEach(c => c.chart.update('none'));
 }
@@ -1150,13 +1191,20 @@ function applyWindThreshold() {
   });
 }
 
-function settingsChanged({ colors = false, wind = false } = {}) {
+function settingsChanged({ colors = false, wind = false, source = false } = {}) {
   savePrefs();
   syncSettingsForm();
   renderLegend();
   if (colors) applyTempColors();
   if (wind) applyWindThreshold();
+  if (source) refresh(); // different model → new numbers
 }
+
+settingsDialog.querySelectorAll('input[name="model"]').forEach(radio =>
+  radio.addEventListener('change', () => {
+    forecastModel = radio.value;
+    settingsChanged({ source: true });
+  }));
 
 bandSelects.forEach((sel, i) => sel.addEventListener('change', () => {
   tempBands[i] = parseInt(sel.value, 10);
@@ -1180,11 +1228,13 @@ gustSelect.addEventListener('change', () => {
 });
 
 document.getElementById('settings-reset').addEventListener('click', () => {
+  const sourceChanged = forecastModel !== 'auto';
   tempBands = [...DEFAULT_BANDS];
   colorBy = 'actual';
+  forecastModel = 'auto';
   windThresholdMph = DEFAULT_WIND_MPH;
   gustThresholdMph = DEFAULT_GUST_MPH;
-  settingsChanged({ colors: true, wind: true });
+  settingsChanged({ colors: true, wind: true, source: sourceChanged });
 });
 
 settingsBtn.addEventListener('click', () => {

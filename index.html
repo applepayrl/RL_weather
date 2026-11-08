@@ -19,7 +19,7 @@
   <link rel="manifest" href="manifest.json">
 
   <!-- ?v= values are content hashes, rewritten by .githooks/pre-commit -->
-  <link rel="stylesheet" href="style.css?v=15dd7a7f">
+  <link rel="stylesheet" href="style.css?v=2312aecc">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
           integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
           crossorigin="anonymous"></script>
@@ -69,7 +69,7 @@
 
     <!-- Global legend -->
     <div class="legend-bar">
-      <div class="legend-item"><span class="legend-swatch temp" aria-hidden="true"></span><span>Temp °C<span id="temp-legend-note" hidden> (colour by feels like)</span></span></div>
+      <div class="legend-item"><span class="legend-swatch temp" aria-hidden="true"></span><span>Temp °C<span id="temp-legend-note" hidden> (color by feels like)</span></span></div>
       <div class="legend-item"><span class="legend-swatch feels" aria-hidden="true"></span> Feels like</div>
       <div class="legend-item"><span class="legend-swatch precip" aria-hidden="true"></span> Rain mm</div>
       <div class="legend-item"><span class="legend-swatch wind" aria-hidden="true"></span><span>Wind &gt; <span id="wind-legend"></span> mph</span></div>
@@ -94,13 +94,22 @@
         <button type="submit" class="settings-done">Done</button>
       </div>
 
-      <section class="settings-group" aria-labelledby="temp-colours-title">
-        <h3 id="temp-colours-title">Temperature line colours</h3>
-        <div class="segmented" role="radiogroup" aria-label="Choose colours from">
+      <section class="settings-group" aria-labelledby="source-title">
+        <h3 id="source-title">Forecast source</h3>
+        <div class="segmented" role="radiogroup" aria-label="Forecast source">
+          <label><input type="radio" name="model" value="auto"><span>Open-Meteo pick</span></label>
+          <label><input type="radio" name="model" value="nbm"><span>NOAA NBM</span></label>
+        </div>
+        <p class="settings-note">Open-Meteo picks the best models for each location. NBM is the National Weather Service's blend of many models; it covers the continental US and southern Canada, and elsewhere the app uses Open-Meteo's pick.</p>
+      </section>
+
+      <section class="settings-group" aria-labelledby="temp-colors-title">
+        <h3 id="temp-colors-title">Temperature line colors</h3>
+        <div class="segmented" role="radiogroup" aria-label="Choose colors from">
           <label><input type="radio" name="colorBy" value="actual"><span>Actual temp</span></label>
           <label><input type="radio" name="colorBy" value="feels"><span>Feels like</span></label>
         </div>
-        <p class="settings-note">Only the temperature line is coloured. The feels-like line always stays gray.</p>
+        <p class="settings-note">Only the temperature line is colored. The feels-like line always stays gray.</p>
         <div class="setting-row">
           <span class="dot" style="--c: #4a90e2" aria-hidden="true"></span>
           <label class="setting-label" for="band-0">Cold</label>
@@ -151,6 +160,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=2a6d3f29"></script>
+  <script src="app.js?v=e0a2e622"></script>
 </body>
 </html>

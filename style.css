@@ -414,12 +414,12 @@ body::after {
   position: relative;
   height: 28px;
   margin-bottom: 2px;
-  /* no overflow clipping: centred icons may dip into the canvas headroom */
+  /* no overflow clipping: centered icons may dip into the canvas headroom */
 }
 
 .weather-icon-strip .weather-icon {
   position: absolute;
-  top: var(--icon-top, 0); /* set by JS: centred between readout and plot */
+  top: var(--icon-top, 0); /* set by JS: centered between readout and plot */
   transform: translateX(-50%);
   width: var(--icon-size, 22px);
   height: var(--icon-size, 22px);
@@ -476,7 +476,7 @@ body::after {
 }
 
 /* ─── Settings sheet ─────────────────────────────────────────────────────── */
-/* Centred panel on wide screens, bottom sheet on phones (see below). */
+/* Centered panel on wide screens, bottom sheet on phones (see below). */
 .settings {
   width: min(440px, calc(100% - 32px));
   max-width: none;
