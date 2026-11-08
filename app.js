@@ -202,6 +202,22 @@ function weatherCategory(code) {
   return 'clear'; // covers 0, 1, and any unexpected fallback
 }
 
+// When one icon stands for several hours it shows the most significant one.
+const SEVERITY = { clear: 0, partly: 1, overcast: 2, fog: 3, rain: 4, snow: 5, thunder: 6 };
+function severity(code) { return code == null ? -1 : SEVERITY[weatherCategory(code)]; }
+
+// Icon strip density: one icon per hour if it fits, else one per 2, 3…
+// hours. Icons shrink (down to ICON_MIN_PX) before the strip thins out.
+const ICON_MIN_PX = 14;
+const ICON_GAP_PX = 4;
+function iconLayout(hourPx, maxSize) {
+  for (const step of [1, 2, 3, 4, 6]) {
+    const room = hourPx * step - ICON_GAP_PX;
+    if (room >= ICON_MIN_PX) return { step, size: Math.floor(Math.min(maxSize, room)) };
+  }
+  return { step: 6, size: ICON_MIN_PX };
+}
+
 function weatherIconSVG(hour, weatherCode, sunriseHour, sunsetHour) {
   const sr = sunriseHour ?? 8;
   const ss = sunsetHour ?? 20;
@@ -211,17 +227,21 @@ function weatherIconSVG(hour, weatherCode, sunriseHour, sunsetHour) {
 
   if (cat === 'snow') {
     return `<svg ${sz}>
+      <g transform="translate(1.2 0)">
       <path d="M6 14c0-2 2-3.5 4.5-3.5S13 10 14 10c2.5 0 4 1.5 4 3.5S16 17 14 17H6.5C4.5 17 3 15.8 6 14z" fill="#7a7a8a"/>
       <circle cx="8" cy="20" r="1" fill="#e0e8f0"/><circle cx="12" cy="21" r="1" fill="#e0e8f0"/><circle cx="16" cy="20" r="1" fill="#e0e8f0"/>
       <circle cx="10" cy="23" r="0.8" fill="#e0e8f0"/><circle cx="14" cy="23" r="0.8" fill="#e0e8f0"/>
+      </g>
     </svg>`;
   }
   if (cat === 'rain') {
     return `<svg ${sz}>
+      <g transform="translate(1.2 0)">
       <path d="M6 12c0-2 2-3.5 4.5-3.5S13 8 14 8c2.5 0 4 1.5 4 3.5S16 15 14 15H6.5C4.5 15 3 13.8 6 12z" fill="#7a7a8a"/>
       <line x1="9" y1="17" x2="8" y2="21" stroke="#4a90e2" stroke-width="1.5" stroke-linecap="round"/>
       <line x1="13" y1="17" x2="12" y2="21" stroke="#4a90e2" stroke-width="1.5" stroke-linecap="round"/>
       <line x1="17" y1="17" x2="16" y2="20" stroke="#4a90e2" stroke-width="1.5" stroke-linecap="round"/>
+      </g>
     </svg>`;
   }
   if (cat === 'fog') {
@@ -538,7 +558,7 @@ function renderReadout(card) {
   }
   const rows = h != null
     ? [['Temp', fmtTemp(s.temps[h])], ['Feels', fmtTemp(s.feels[h])],
-       ['Rain', fmtMm(s.precip[h])], ['Wind / gust', `${fmtMph(s.wind[h])} / ${fmtMph(s.gust[h])} mph`]]
+       ['Rain', fmtMm(s.precip[h])], ['Wind / gust', `${fmtMph(s.wind[h])}/${fmtMph(s.gust[h])} mph`]]
     : [['High', fmtTemp(maxOf(s.temps))], ['Low', fmtTemp(minOf(s.temps))],
        ['Rain', fmtMm(s.precip.reduce((a, b) => a + (b ?? 0), 0))], ['Max gust', `${fmtMph(maxOf(s.gust))} mph`]];
   time.textContent = timeText ?? 'Day';
@@ -760,22 +780,28 @@ function createDayCard(dayData, offsetSec) {
     iconStrip.innerHTML = '';
     const area = chart.chartArea;
     if (!area) return;
-    const maxIcons = Math.floor((area.right - area.left) / 24); // 24px per icon incl. gap
-    // Icons must land on every labelled hour, so the icon step is the
-    // smallest divisor of the label step that fits.
-    const labelStep = hourLabelStep(chart.canvas.clientWidth);
-    let step = labelStep;
-    for (let d = 1; d <= labelStep; d++) {
-      if (labelStep % d === 0 && Math.ceil(24 / d) <= maxIcons) { step = d; break; }
-    }
+    const { step, size } = iconLayout((area.right - area.left) / 24,
+      parseFloat(getComputedStyle(iconStrip).getPropertyValue('--icon-max')) || 22);
+    iconStrip.style.setProperty('--icon-size', size + 'px');
+    const x = chart.scales.x;
     const nowHour = card.isToday ? locationNow(card.offsetSec).hour : -1;
-    for (let h = 0; h < 24; h += step) {
-      if (s.code[h] == null && s.temps[h] == null) continue;
+    // Each icon covers a block of `step` hours, sits centred over that
+    // block's rain bars, and shows the block's most significant weather —
+    // so rain in any covered hour always gets a rain icon above it.
+    for (let b = 0; b < 24; b += step) {
+      const hours = [];
+      for (let h = b; h < Math.min(24, b + step); h++) {
+        if (s.code[h] != null || s.temps[h] != null) hours.push(h);
+      }
+      if (!hours.length) continue;
+      const code = hours.map(h => s.code[h])
+        .reduce((best, c) => (severity(c) > severity(best) ? c : best));
+      const mid = (hours[0] + hours[hours.length - 1]) / 2;
       const span = document.createElement('span');
       span.className = 'weather-icon';
-      if (h < nowHour) span.classList.add('past');
-      span.style.left = chart.scales.x.getPixelForValue(h) + 'px';
-      span.innerHTML = weatherIconSVG(h, s.code[h], card.sunriseHour, card.sunsetHour);
+      if (mid < nowHour) span.classList.add('past');
+      span.style.left = (x.getPixelForValue(hours[0]) + x.getPixelForValue(hours[hours.length - 1])) / 2 + 'px';
+      span.innerHTML = weatherIconSVG(mid, code, card.sunriseHour, card.sunsetHour);
       iconStrip.appendChild(span);
     }
   };

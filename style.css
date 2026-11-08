@@ -373,7 +373,8 @@ body::after {
 /* Readout row: values for the selected hour (or Now / day summary) */
 .readout {
   display: grid;
-  grid-template-columns: 2.9em repeat(3, minmax(0, 1fr)) minmax(0, 1.5fr);
+  /* temps are at most "-12°"; rain needs room for "20.1 mm" */
+  grid-template-columns: 2.9em minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.25fr) minmax(0, 1.5fr);
   align-items: end;
   gap: 0 8px;
   margin: 8px 0 6px;
@@ -413,6 +414,7 @@ body::after {
 .ro-cell.wind .ro-value { color: var(--accent-wind); }
 
 .weather-icon-strip {
+  --icon-max: 22px; /* JS sets --icon-size: this, or smaller to fit more icons */
   position: relative;
   height: 28px;
   margin-bottom: 2px;
@@ -423,8 +425,8 @@ body::after {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
-  width: 22px;
-  height: 22px;
+  width: var(--icon-size, 22px);
+  height: var(--icon-size, 22px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -433,8 +435,8 @@ body::after {
 .weather-icon-strip .weather-icon.past { opacity: 0.35; }
 
 .weather-icon-strip .weather-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 100%;
+  height: 100%;
 }
 
 .canvas-wrap {
@@ -500,9 +502,7 @@ body::after {
   .chart-card { padding: 12px 12px 8px; }
   .readout { gap: 0 6px; padding: 5px 8px; }
   .canvas-wrap { height: 180px; }
-  .weather-icon-strip { height: 22px; }
-  .weather-icon-strip .weather-icon { width: 16px; height: 16px; }
-  .weather-icon-strip .weather-icon svg { width: 16px; height: 16px; }
+  .weather-icon-strip { --icon-max: 16px; height: 22px; }
   .legend-bar { gap: 6px 12px; }
 }
 

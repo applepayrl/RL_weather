@@ -47,7 +47,7 @@ Open http://localhost:8080 in the browser and confirm ALL of the following:
 - [ ] Thin gray feels-like line is drawn on the °C axis
 - [ ] Orange wind dots appear below x-axis for hours where wind > the selected threshold (default 10 mph); red dots where gusts ≥ 30 mph
 - [ ] On today's card, past hours are dimmed and a dashed line marks the current time
-- [ ] Weather icons line up with the labelled hours
+- [ ] Weather icons sit centred over the rain bars of the hours they cover (one per hour on desktop/landscape, one per 2 h on phone portrait) and show the most significant weather in those hours
 - [ ] Each card has a readout row: "Now" (today) or a day summary; hovering / tapping / dragging horizontally across a chart shows that hour's temp, feels-like, rain and wind/gust (no floating tooltip)
 - [ ] Vertical swipes over a chart scroll the page
 - [ ] Search input triggers dropdown with up to 5 city results ("No cities match" when empty); Return picks the first result
