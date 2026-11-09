@@ -1270,6 +1270,12 @@ const RADAR_WINDOW_MS = 60 * 60 * 1000;
 const SINGLE_SITE_MAX_KM = 160;   // beyond this the beam overshoots low rain; use the composite
 const COMPOSITE_MAX_KM = 400;     // no NEXRAD this close: outside US coverage
 const RADAR_ZOOM = 9;             // ~95 km across a portrait phone
+// Furthest zoom-out. Every frame of the hour is held at once, so a wide view
+// multiplies the tiles in memory (zooming out to the whole US crashed iOS).
+// One radar: its whole ~460 km range fits across a portrait phone.
+const SINGLE_SITE_MIN_ZOOM = 5.75;
+const WIDE_MIN_ZOOM = 5;          // composite / RainViewer: ~1,500 km across
+const SITE_RANGE_KM = 460;        // NEXRAD reflectivity range
 const RADAR_OPACITY = 0.85;
 const RADAR_TIMEOUT_MS = 45 * 1000;
 const RADAR_STALE_MS = 5 * 60 * 1000;  // reload frames when the app returns after this long
@@ -1364,13 +1370,16 @@ async function pickRadarSource(lat, lon, signal) {
     for (const site of sites.filter(s => s.km <= SINGLE_SITE_MAX_KM).slice(0, 2)) {
       const frames = await iemScans(site.id, 'N0B', signal);
       if (frames.length >= 6) {
-        return { ...iem, frames, maxNativeZoom: 11,
+        const dLat = SITE_RANGE_KM / 111, dLon = dLat / Math.cos(site.lat * Math.PI / 180);
+        return { ...iem, frames, maxNativeZoom: 11, minZoom: SINGLE_SITE_MIN_ZOOM,
+          bounds: [[site.lat - dLat, site.lon - dLon], [site.lat + dLat, site.lon + dLon]],
           label: `${site.name} radar (${site.id}) · ${Math.round(site.km)} km away · 250 m detail` };
       }
     }
     if (sites.length && sites[0].km <= COMPOSITE_MAX_KM) {
       const frames = await iemScans('USCOMP', 'N0Q', signal);
-      if (frames.length >= 6) return { ...iem, frames, maxNativeZoom: 10, label: 'US radar composite · 1 km detail' };
+      if (frames.length >= 6) return { ...iem, frames, maxNativeZoom: 10, minZoom: WIDE_MIN_ZOOM,
+        bounds: [[20, -130], [55, -60]], label: 'US radar composite · 1 km detail' };
     }
   } catch (e) {
     if (e.name === 'AbortError') throw e;   // otherwise fall through to RainViewer
@@ -1381,7 +1390,7 @@ async function pickRadarSource(lat, lon, signal) {
     .filter(f => f.time * 1000 >= since)
     .map(f => ({ time: f.time * 1000, url: `${rv.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png` }));
   if (!frames.length) throw new Error('No radar images are available right now.');
-  return { frames, maxNativeZoom: 7, zoom: 8, filter: false, ramp: RAMP_RAINVIEWER,
+  return { frames, maxNativeZoom: 7, zoom: 8, minZoom: WIDE_MIN_ZOOM, filter: false, ramp: RAMP_RAINVIEWER,
     attribution: 'Radar: <a href="https://www.rainviewer.com/">RainViewer</a>',
     label: 'RainViewer · coarser detail outside the US' };
 }
@@ -1415,6 +1424,12 @@ function cleanEchoes(ctx, coords) {
   const mPerPx = 156543.03 * Math.cos(lat) / n;
   const minPx = MIN_ECHO_KM2 * 1e6 / mPerPx ** 2;
   const minEdgePx = EDGE_ECHO_KM2 * 1e6 / mPerPx ** 2;
+  // Zoomed far out a speck is under 2 px anyway: skip the blob pass.
+  if (minPx < 2) {
+    for (let i = 0, p = 3; i < keep.length; i++, p += 4) if (!keep[i]) px[p] = 0;
+    ctx.putImageData(img, 0, 0);
+    return;
+  }
   // 8-connected blobs; ones touching the tile edge may continue next door,
   // so only very small pieces of those are dropped.
   const seen = new Uint8Array(W * W);
@@ -1450,6 +1465,7 @@ function makeRadarLayer(url, source) {
     opacity: 0,
     maxNativeZoom: source.maxNativeZoom,
     maxZoom: 13,
+    bounds: source.bounds,        // no tiles (or memory) outside the radar's reach
     updateWhenZooming: false,
     keepBuffer: 1,
     attribution: source.attribution,
@@ -1492,7 +1508,7 @@ function ensureRadarMap() {
     scrollWheelZoom: true,
     doubleClickZoom: true,
     zoomSnap: 0.25,
-    minZoom: 4,
+    minZoom: WIDE_MIN_ZOOM,   // per source: see setMinZoom in startRadar
     maxZoom: 13,
     attributionControl: true
   });
@@ -1578,6 +1594,7 @@ async function startRadar() {
     ensureRadarMap();
     clearRadarFrames();
     radarMap.invalidateSize();
+    radarMap.setMinZoom(source.minZoom);
     radarMap.setView([loc.lat, loc.lon], source.zoom ?? RADAR_ZOOM, { animate: false });
     radarBase.marker.setLatLng([loc.lat, loc.lon]);
     radarEls.source.textContent = source.label;
