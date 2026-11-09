@@ -1250,6 +1250,463 @@ settingsDialog.addEventListener('click', e => {
 // Back to the gear button for keyboard users, without scrolling the page.
 settingsDialog.addEventListener('close', () => settingsBtn.focus({ preventScroll: true }));
 
+// ─── Radar (full screen, last hour) ──────────────────────────────────────────
+// US: the nearest NEXRAD's own scans (250 m detail, every 3–5 min) as map tiles
+// from the Iowa Environmental Mesonet. Farther from a NEXRAD: the US composite
+// (1 km, every 5 min). Elsewhere: RainViewer (10 min, coarse zoom only).
+// Every frame's tiles load before the map appears; scrubbing then just swaps
+// which layer is visible, so it's instant.
+
+const LEAFLET = {
+  js: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js',
+  jsSri: 'sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH',
+  css: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css',
+  cssSri: 'sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H'
+};
+const IEM_RADAR_API = 'https://mesonet.agron.iastate.edu/json/radar.py';
+const IEM_TILES = 'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/';
+const RAINVIEWER_API = 'https://api.rainviewer.com/public/weather-maps.json';
+const RADAR_WINDOW_MS = 60 * 60 * 1000;
+const SINGLE_SITE_MAX_KM = 160;   // beyond this the beam overshoots low rain; use the composite
+const COMPOSITE_MAX_KM = 400;     // no NEXRAD this close: outside US coverage
+const RADAR_ZOOM = 9;             // ~95 km across a portrait phone
+const RADAR_OPACITY = 0.85;
+const RADAR_TIMEOUT_MS = 45 * 1000;
+const RADAR_STALE_MS = 5 * 60 * 1000;  // reload frames when the app returns after this long
+const BASE_ATTRIB = '© <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, OpenStreetMap';
+// Color ramps for the Light → Heavy key (IEM NWS-style; RainViewer "Universal Blue")
+const RAMP_IEM = 'linear-gradient(90deg, #576da4, #65c2dc, #3cd66d, #0eaf13, #ffe200, #ffb100, #ff0000, #b80000, #e10be3)';
+const RAMP_RAINVIEWER = 'linear-gradient(90deg, #c8b88a, #88ddee, #0099cc, #005588, #ffee00, #ff8800, #ff0000, #ff00ff)';
+
+const radarDialog = document.getElementById('radar');
+const radarBtn = document.getElementById('radar-btn');
+const radarEls = {
+  back: document.getElementById('radar-back'),
+  place: document.getElementById('radar-place'),
+  time: document.getElementById('radar-time'),
+  clock: document.getElementById('radar-clock'),
+  ago: document.getElementById('radar-ago'),
+  map: document.getElementById('radar-map'),
+  loading: document.getElementById('radar-loading'),
+  status: document.getElementById('radar-status'),
+  progress: document.getElementById('radar-progress-bar'),
+  retry: document.getElementById('radar-retry'),
+  busy: document.getElementById('radar-busy'),
+  hint: document.getElementById('radar-hint'),
+  key: document.getElementById('radar-key'),
+  source: document.getElementById('radar-source'),
+  ramp: document.getElementById('radar-ramp')
+};
+
+let leafletPromise = null;
+let radarMap = null;
+let radarBase = null;          // { under, labels, marker } — created once
+let radarFrames = [];          // [{ time (ms), layer }] oldest → newest
+let radarIndex = 0;
+let radarSeq = 0;              // increments per open; stale loads are dropped
+let radarController = null;
+let radarHintSeen = false;
+
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (leafletPromise) return leafletPromise;
+  leafletPromise = new Promise((resolve, reject) => {
+    const link = Object.assign(document.createElement('link'), {
+      rel: 'stylesheet', href: LEAFLET.css, integrity: LEAFLET.cssSri, crossOrigin: 'anonymous'
+    });
+    const script = Object.assign(document.createElement('script'), {
+      src: LEAFLET.js, integrity: LEAFLET.jsSri, crossOrigin: 'anonymous'
+    });
+    script.onload = resolve;
+    script.onerror = () => { leafletPromise = null; script.remove(); reject(new Error('The map library could not load.')); };
+    document.head.append(link, script);
+  });
+  return leafletPromise;
+}
+
+async function getJSON(url, signal) {
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const rad = Math.PI / 180;
+  const a = Math.sin((lat2 - lat1) * rad / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin((lon2 - lon1) * rad / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+}
+
+const isoMinute = ms => new Date(ms).toISOString().slice(0, 16) + 'Z';      // 2026-11-08T19:26Z
+const iemStamp = iso => iso.replace(/[-:TZ]/g, '');                         // 202611081926
+
+async function iemScans(radar, product, signal) {
+  const end = Date.now();
+  const url = `${IEM_RADAR_API}?operation=list&radar=${radar}&product=${product}` +
+    `&start=${isoMinute(end - RADAR_WINDOW_MS)}&end=${isoMinute(end + 60 * 1000)}`;
+  const { scans = [] } = await getJSON(url, signal);
+  return scans.map(s => ({
+    time: Date.parse(s.ts),
+    url: `${IEM_TILES}ridge::${radar}-${product}-${iemStamp(s.ts)}/{z}/{x}/{y}.png`
+  }));
+}
+
+// Picks the most detailed radar that covers the location.
+async function pickRadarSource(lat, lon, signal) {
+  const iem = { attribution: 'Radar: NOAA via <a href="https://mesonet.agron.iastate.edu/">IEM</a>', filter: true, ramp: RAMP_IEM };
+  try {
+    const { radars = [] } = await getJSON(
+      `${IEM_RADAR_API}?operation=available&lat=${lat.toFixed(3)}&lon=${lon.toFixed(3)}&start=${isoMinute(Date.now())}`, signal);
+    const sites = radars
+      .filter(r => r.type === 'NEXRAD')
+      .map(r => ({ ...r, km: distanceKm(lat, lon, r.lat, r.lon) }))
+      .sort((a, b) => a.km - b.km);
+    for (const site of sites.filter(s => s.km <= SINGLE_SITE_MAX_KM).slice(0, 2)) {
+      const frames = await iemScans(site.id, 'N0B', signal);
+      if (frames.length >= 6) {
+        return { ...iem, frames, maxNativeZoom: 11,
+          label: `${site.name} radar (${site.id}) · ${Math.round(site.km)} km away · 250 m detail` };
+      }
+    }
+    if (sites.length && sites[0].km <= COMPOSITE_MAX_KM) {
+      const frames = await iemScans('USCOMP', 'N0Q', signal);
+      if (frames.length >= 6) return { ...iem, frames, maxNativeZoom: 10, label: 'US radar composite · 1 km detail' };
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;   // otherwise fall through to RainViewer
+  }
+  const rv = await getJSON(RAINVIEWER_API, signal);
+  const since = Date.now() - RADAR_WINDOW_MS - 60 * 1000;
+  const frames = (rv.radar?.past ?? [])
+    .filter(f => f.time * 1000 >= since)
+    .map(f => ({ time: f.time * 1000, url: `${rv.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png` }));
+  if (!frames.length) throw new Error('No radar images are available right now.');
+  return { frames, maxNativeZoom: 7, zoom: 8, filter: false, ramp: RAMP_RAINVIEWER,
+    attribution: 'Radar: <a href="https://www.rainviewer.com/">RainViewer</a>',
+    label: 'RainViewer · coarser detail outside the US' };
+}
+
+// Hides echoes that aren't rain. Clear-air radar picks up ground and sea
+// clutter, insects, birds and interference; they show as
+//   - grays, khakis and dull blues: below ~14 dBZ (lighter than ~0.3 mm/h), and
+//   - small isolated specks that flicker from scan to scan.
+// So: drop the weak colors, then drop any blob smaller than MIN_ECHO_KM2.
+// (The white/pink of 60+ dBZ hail cores is a separate, kept color.)
+const MIN_ECHO_KM2 = 5;          // ~2.2 km across; real showers are larger
+const EDGE_ECHO_KM2 = 2;         // smaller cut for blobs that run off the tile edge
+
+function isWeakEcho(r, g, b) {
+  const max = Math.max(r, g, b);
+  if (max > 90 && max < 215 && max - Math.min(r, g, b) < 70) return true;  // grays/khakis: < ~4 dBZ
+  return b - g >= 15 && g > r && g < 150;                                   // dull blues: ~4–14 dBZ
+}
+
+function cleanEchoes(ctx, coords) {
+  const W = 256;
+  const img = ctx.getImageData(0, 0, W, W);
+  const px = img.data;
+  const keep = new Uint8Array(W * W);
+  for (let i = 0, p = 0; i < keep.length; i++, p += 4) {
+    if (px[p + 3] && !isWeakEcho(px[p], px[p + 1], px[p + 2])) keep[i] = 1;
+  }
+  // Blob size limits in pixels for this tile's zoom and latitude.
+  const n = 2 ** coords.z;
+  const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (coords.y + 0.5) / n)));
+  const mPerPx = 156543.03 * Math.cos(lat) / n;
+  const minPx = MIN_ECHO_KM2 * 1e6 / mPerPx ** 2;
+  const minEdgePx = EDGE_ECHO_KM2 * 1e6 / mPerPx ** 2;
+  // 8-connected blobs; ones touching the tile edge may continue next door,
+  // so only very small pieces of those are dropped.
+  const seen = new Uint8Array(W * W);
+  const stack = [], blob = [];
+  for (let s = 0; s < keep.length; s++) {
+    if (!keep[s] || seen[s]) continue;
+    seen[s] = 1; stack.push(s); blob.length = 0;
+    let edge = false;
+    while (stack.length) {
+      const i = stack.pop();
+      blob.push(i);
+      const x = i % W, y = (i - x) / W;
+      if (x === 0 || y === 0 || x === W - 1 || y === W - 1) edge = true;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= W) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= W) continue;
+          const j = yy * W + xx;
+          if (keep[j] && !seen[j]) { seen[j] = 1; stack.push(j); }
+        }
+      }
+    }
+    if (blob.length < (edge ? minEdgePx : minPx)) blob.forEach(i => { keep[i] = 0; });
+  }
+  for (let i = 0, p = 3; i < keep.length; i++, p += 4) if (!keep[i]) px[p] = 0;
+  ctx.putImageData(img, 0, 0);
+}
+
+function makeRadarLayer(url, source) {
+  const options = {
+    opacity: 0,
+    maxNativeZoom: source.maxNativeZoom,
+    maxZoom: 13,
+    updateWhenZooming: false,
+    keepBuffer: 1,
+    attribution: source.attribution,
+    className: 'radar-frame'
+  };
+  if (!source.filter) return L.tileLayer(url, options);
+  const FilteredLayer = L.TileLayer.extend({
+    createTile(coords, done) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 256;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(img, 0, 0, 256, 256);
+          cleanEchoes(ctx, coords);
+          done(null, canvas);
+        } catch (err) { done(err, canvas); }
+      };
+      img.onerror = () => done(new Error('tile failed'), canvas);
+      img.src = this.getTileUrl(coords);
+      return canvas;
+    }
+  });
+  const layer = new FilteredLayer(url, options);
+  // Free canvas memory straight away when Leaflet prunes a tile (iOS caps it).
+  layer.on('tileunload', e => { e.tile.width = e.tile.height = 0; });
+  return layer;
+}
+
+function ensureRadarMap() {
+  if (radarMap) return;
+  radarMap = L.map(radarEls.map, {
+    zoomControl: false,
+    dragging: false,          // one finger / mouse drag scrubs time instead
+    keyboard: false,          // arrow keys step frames
+    boxZoom: false,
+    touchZoom: true,          // pinch zooms and pans
+    scrollWheelZoom: true,
+    doubleClickZoom: true,
+    zoomSnap: 0.25,
+    minZoom: 4,
+    maxZoom: 13,
+    attributionControl: true
+  });
+  radarMap.attributionControl.setPrefix(false);
+  radarMap.createPane('radarLabels').style.zIndex = 450;   // above radar, below marker
+  radarMap.getPane('radarLabels').style.pointerEvents = 'none';
+  // Esri's dark gray canvas: free, no key; the labels are a separate layer
+  // so place names stay readable on top of the rain.
+  const base = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/{style}/MapServer/tile/{z}/{y}/{x}';
+  radarBase = {
+    under: L.tileLayer(base, { style: 'World_Dark_Gray_Base', maxNativeZoom: 16, maxZoom: 13, attribution: BASE_ATTRIB }),
+    labels: L.tileLayer(base, { style: 'World_Dark_Gray_Reference', maxNativeZoom: 16, maxZoom: 13, pane: 'radarLabels' }),
+    marker: L.circleMarker([0, 0], {
+      radius: 6, color: '#ffffff', weight: 2.5, fillColor: '#5a9ae6', fillOpacity: 1, interactive: false
+    })
+  };
+  Object.values(radarBase).forEach(l => l.addTo(radarMap));
+  radarBusyTracking(radarBase.under);
+}
+
+// Small spinner while new tiles load after a pinch (the map is already shown).
+let radarLoadingLayers = new Set();
+function radarBusyTracking(layer) {
+  layer.on('loading', () => { radarLoadingLayers.add(layer); updateRadarBusy(); });
+  layer.on('load remove', () => { radarLoadingLayers.delete(layer); updateRadarBusy(); });
+}
+function updateRadarBusy() {
+  radarEls.busy.hidden = !radarDialog.classList.contains('ready') || radarLoadingLayers.size === 0;
+}
+
+function clearRadarFrames() {
+  radarFrames.forEach(f => radarMap.removeLayer(f.layer));
+  radarFrames = [];
+  radarLoadingLayers = new Set();
+}
+
+function setRadarStatus(text, { progress = null, error = false } = {}) {
+  radarEls.status.textContent = text;
+  radarEls.progress.parentElement.hidden = progress == null;
+  if (progress != null) radarEls.progress.style.width = `${Math.round(progress * 100)}%`;
+  radarEls.retry.hidden = !error;
+  radarEls.loading.classList.toggle('error', error);
+}
+
+// Clock time at the forecast location, like the rest of the app.
+function formatRadarClock(ms) {
+  const offset = lastForecastData?.utc_offset_seconds ?? -new Date().getTimezoneOffset() * 60;
+  const d = new Date(ms + offset * 1000);
+  const h = d.getUTCHours(), m = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+function showRadarFrame(i) {
+  if (!radarFrames.length) return;
+  i = Math.max(0, Math.min(radarFrames.length - 1, i));
+  if (radarFrames[radarIndex]) radarFrames[radarIndex].layer.setOpacity(0);
+  radarIndex = i;
+  const f = radarFrames[i];
+  f.layer.setOpacity(RADAR_OPACITY);
+  radarEls.clock.textContent = formatRadarClock(f.time);
+  const mins = Math.max(0, Math.round((Date.now() - f.time) / 60000));
+  radarEls.ago.textContent = mins <= 1 ? 'Now' : `${mins} min ago`;
+  radarEls.time.classList.toggle('latest', i === radarFrames.length - 1);
+}
+
+async function startRadar() {
+  const seq = ++radarSeq;
+  radarController?.abort();
+  radarController = new AbortController();
+  const { signal } = radarController;
+  const stale = () => seq !== radarSeq || !radarDialog.open;
+  const loc = { ...current };   // the city when the radar opened
+
+  radarDialog.classList.remove('ready');
+  radarEls.time.hidden = radarEls.key.hidden = radarEls.hint.hidden = true;
+  radarEls.loading.hidden = false;
+  updateRadarBusy();
+  setRadarStatus('Finding the nearest radar…');
+
+  try {
+    const [, source] = await Promise.all([loadLeaflet(), pickRadarSource(loc.lat, loc.lon, signal)]);
+    if (stale()) return;
+    ensureRadarMap();
+    clearRadarFrames();
+    radarMap.invalidateSize();
+    radarMap.setView([loc.lat, loc.lon], source.zoom ?? RADAR_ZOOM, { animate: false });
+    radarBase.marker.setLatLng([loc.lat, loc.lon]);
+    radarEls.source.textContent = source.label;
+    radarEls.ramp.style.background = source.ramp;
+
+    // Every frame (and the base map) must finish before the map is shown.
+    const total = source.frames.length;
+    let done = 0;
+    setRadarStatus(`Loading ${total} radar images…`, { progress: 0 });
+    const waits = source.frames.map(fr => {
+      const layer = makeRadarLayer(fr.url, source);
+      const frame = { time: fr.time, layer, failed: 0, ok: 0 };
+      layer.on('tileerror', () => frame.failed++);
+      layer.on('tileload', () => frame.ok++);
+      radarFrames.push(frame);
+      return new Promise(resolve => {
+        layer.once('load', () => {
+          done++;
+          if (!stale()) setRadarStatus(`Loading radar images… ${done} of ${total}`, { progress: done / total });
+          resolve();
+        });
+        layer.addTo(radarMap);
+      });
+    });
+    const baseReady = radarBase.under.isLoading() ? new Promise(r => radarBase.under.once('load', r)) : null;
+    let timer;
+    const tooSlow = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('The radar is taking too long to load.')), RADAR_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([Promise.all([...waits, baseReady]), tooSlow]);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (stale()) return;
+
+    // Drop frames whose tiles mostly failed rather than show holes mid-scrub.
+    radarFrames = radarFrames.filter(f => {
+      const bad = f.failed > 0 && f.failed >= f.ok;
+      if (bad) radarMap.removeLayer(f.layer);
+      return !bad;
+    });
+    if (radarFrames.length < 2) throw new Error('The radar images could not be loaded.');
+    radarFrames.forEach(f => radarBusyTracking(f.layer));
+
+    radarIndex = radarFrames.length - 1;
+    showRadarFrame(radarIndex);
+    radarEls.loading.hidden = true;
+    radarEls.time.hidden = radarEls.key.hidden = false;
+    radarEls.hint.hidden = radarHintSeen;
+    radarDialog.classList.add('ready');
+    radarEls.map.focus({ preventScroll: true });
+  } catch (err) {
+    if (err.name === 'AbortError' || stale()) return;
+    console.error('Radar failed:', err);
+    setRadarStatus(`${err.message.startsWith('HTTP') ? 'The radar service is not responding.' : err.message} Check your connection and try again.`, { error: true });
+  }
+}
+
+function openRadar() {
+  radarEls.place.textContent = current.label;
+  radarDialog.showModal();
+  history.pushState({ radar: true }, '');
+  startRadar();
+}
+
+function closeRadar() {
+  if (radarDialog.open) radarDialog.close();
+}
+
+radarBtn.addEventListener('click', openRadar);
+radarEls.back.addEventListener('click', closeRadar);
+radarEls.retry.addEventListener('click', startRadar);
+radarDialog.addEventListener('close', () => {
+  radarSeq++;                       // cancels a load in progress
+  radarController?.abort();
+  if (radarMap) clearRadarFrames();
+  radarDialog.classList.remove('ready');
+  if (history.state?.radar) history.back();
+  radarBtn.focus({ preventScroll: true });
+});
+// Browser / swipe back closes the radar instead of leaving the app.
+window.addEventListener('popstate', closeRadar);
+// Coming back to the app with the radar still open: fetch the newest hour.
+let radarHiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') radarHiddenAt = Date.now();
+  else if (radarDialog.open && Date.now() - radarHiddenAt > RADAR_STALE_MS) startRadar();
+});
+
+// One finger (or mouse) dragging sideways scrubs: the map's full width is the
+// whole hour, right = later. A second finger hands over to pinch-zoom.
+(() => {
+  const pointers = new Set();
+  let drag = null;   // { x, start, perFrame }
+  radarEls.map.addEventListener('pointerdown', e => {
+    pointers.add(e.pointerId);
+    if (pointers.size > 1 || !radarDialog.classList.contains('ready') || (e.pointerType === 'mouse' && e.button !== 0)) {
+      drag = null;
+      return;
+    }
+    const span = Math.max(1, radarFrames.length - 1);
+    drag = { x: e.clientX, start: radarIndex, perFrame: Math.max(10, radarEls.map.clientWidth * 0.9 / span) };
+  });
+  radarEls.map.addEventListener('pointermove', e => {
+    if (!drag || pointers.size > 1) return;
+    const i = drag.start + Math.round((e.clientX - drag.x) / drag.perFrame);
+    if (i !== radarIndex) {
+      showRadarFrame(i);
+      if (!radarHintSeen) { radarHintSeen = true; radarEls.hint.hidden = true; }
+    }
+  });
+  const end = e => {
+    pointers.delete(e.pointerId);
+    if (!pointers.size) drag = null;
+  };
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => radarEls.map.addEventListener(t, end));
+})();
+
+radarDialog.addEventListener('keydown', e => {
+  if (!radarDialog.classList.contains('ready')) return;
+  const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+  if (step) showRadarFrame(radarIndex + step);
+  else if (e.key === 'Home') showRadarFrame(0);
+  else if (e.key === 'End') showRadarFrame(radarFrames.length - 1);
+  else return;
+  e.preventDefault();
+});
+
 // ─── Refresh button ──────────────────────────────────────────────────────────
 refreshBtn.addEventListener('click', async () => {
   if (refreshBtn.classList.contains('spinning')) return;

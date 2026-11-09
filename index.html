@@ -19,7 +19,7 @@
   <link rel="manifest" href="manifest.json">
 
   <!-- ?v= values are content hashes, rewritten by .githooks/pre-commit -->
-  <link rel="stylesheet" href="style.css?v=2312aecc">
+  <link rel="stylesheet" href="style.css?v=0b036133">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
           integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
           crossorigin="anonymous"></script>
@@ -32,6 +32,19 @@
       <div class="header-row">
         <h1>5-Day Forecast</h1>
         <div class="header-actions">
+        <button type="button" id="radar-btn" class="icon-btn" aria-label="Radar, last hour" title="Radar"
+                aria-haspopup="dialog" aria-controls="radar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/>
+            <path d="M4 6h.01"/>
+            <path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/>
+            <path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/>
+            <path d="M12 18h.01"/>
+            <path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/>
+            <circle cx="12" cy="12" r="2"/>
+            <path d="m13.41 10.59 5.66-5.66"/>
+          </svg>
+        </button>
         <button type="button" id="settings-btn" class="icon-btn" aria-label="Settings" title="Settings"
                 aria-haspopup="dialog" aria-controls="settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -160,6 +173,40 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=e0a2e622"></script>
+  <!-- Radar: full screen, last hour, drag left/right on the map to move in time -->
+  <dialog id="radar" class="radar" aria-labelledby="radar-title">
+    <div class="radar-bar">
+      <button type="button" id="radar-back" class="radar-back" aria-label="Back to forecast">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+        <span>Back</span>
+      </button>
+      <div class="radar-heading">
+        <h2 id="radar-title">Radar</h2>
+        <p id="radar-place" class="radar-place"></p>
+      </div>
+      <div class="radar-time" id="radar-time" hidden>
+        <span id="radar-clock" class="radar-clock"></span>
+        <span id="radar-ago" class="radar-ago"></span>
+      </div>
+    </div>
+    <div class="radar-stage">
+      <div id="radar-map" class="radar-map" tabindex="0"
+           aria-label="Radar map. Drag left or right, or use the arrow keys, to move through the last hour."></div>
+      <div id="radar-loading" class="radar-loading" role="status">
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="radar-status">Finding the nearest radar…</p>
+        <div class="radar-progress" aria-hidden="true"><span id="radar-progress-bar"></span></div>
+        <button type="button" id="radar-retry" class="radar-retry" hidden>Try again</button>
+      </div>
+      <div id="radar-busy" class="radar-busy" hidden><div class="spinner" aria-hidden="true"></div></div>
+      <p id="radar-hint" class="radar-hint" hidden>Drag left or right to move through the hour</p>
+      <div id="radar-key" class="radar-key" hidden>
+        <p id="radar-source" class="radar-source"></p>
+        <div class="radar-scale"><span>Light</span><i id="radar-ramp" aria-hidden="true"></i><span>Heavy</span></div>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="app.js?v=72049cb2"></script>
 </body>
 </html>
