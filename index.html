@@ -19,7 +19,7 @@
   <link rel="manifest" href="manifest.json">
 
   <!-- ?v= values are content hashes, rewritten by .githooks/pre-commit -->
-  <link rel="stylesheet" href="style.css?v=58d789f3">
+  <link rel="stylesheet" href="style.css?v=27a2b473">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
           integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
           crossorigin="anonymous"></script>
@@ -103,17 +103,17 @@
   <dialog id="settings" class="settings" aria-labelledby="settings-title">
     <form method="dialog" class="settings-form">
       <div class="settings-head">
-        <h2 id="settings-title">Settings</h2>
+        <h2 id="settings-title" tabindex="-1" autofocus>Settings</h2>
         <button type="submit" class="settings-done">Done</button>
       </div>
 
       <section class="settings-group" aria-labelledby="source-title">
         <h3 id="source-title">Forecast source</h3>
         <div class="segmented" role="radiogroup" aria-label="Forecast source">
-          <label><input type="radio" name="model" value="auto"><span>Open-Meteo pick</span></label>
           <label><input type="radio" name="model" value="nbm"><span>NOAA NBM</span></label>
+          <label><input type="radio" name="model" value="ecmwf"><span>ECMWF</span></label>
         </div>
-        <p class="settings-note">Open-Meteo picks the best models for each location. NBM is the National Weather Service's blend of many models; it covers the continental US and southern Canada, and elsewhere the app uses Open-Meteo's pick.</p>
+        <p class="settings-note">NBM is the National Weather Service's blend of about 30 models, corrected against local weather stations; it covers the continental US and southern Canada, and elsewhere the app uses ECMWF. ECMWF is the European model, worldwide. Tap the source under the city to switch.</p>
       </section>
 
       <section class="settings-group" aria-labelledby="temp-colors-title">
@@ -196,7 +196,7 @@
         <span>Back</span>
       </button>
       <div class="radar-heading">
-        <h2 id="radar-title">Radar</h2>
+        <h2 id="radar-title" tabindex="-1" autofocus>Radar</h2>
         <p id="radar-place" class="radar-place"></p>
       </div>
       <div class="radar-time" id="radar-time" hidden>
@@ -222,6 +222,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=840dbcc0"></script>
+  <script src="app.js?v=0ac4a432"></script>
 </body>
 </html>

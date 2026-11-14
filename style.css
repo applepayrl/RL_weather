@@ -936,4 +936,7 @@ body:has(.radar[open]) { overflow: hidden; }
    back (see app.js). */
 .pointer-input :focus,
 .pointer-input :focus-visible { outline: none; }
+/* Sheets open with focus on their title (tabindex -1, not a control), so
+   no button is ever ringed on open; titles never need a ring. */
+[tabindex="-1"]:focus { outline: none; }
 .pointer-input .canvas-wrap canvas:focus-visible { box-shadow: none; }

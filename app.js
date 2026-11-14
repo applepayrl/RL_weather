@@ -15,15 +15,19 @@ const BAND_RANGE = [-30, 45];
 const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const STORAGE_KEY = 'rlweather:v1';  // { lat, lon, label, wind, gust, bands, colorBy, model }
-// Forecast source. 'auto' lets Open-Meteo pick per location; 'nbm' asks for
-// NOAA's National Blend of Models and falls back to the pick where NBM has
-// no data (outside the continental US / southern Canada).
+// Forecast source. 'nbm' is NOAA's National Blend of Models (bias-corrected
+// against local stations; covers the continental US / southern Canada) and
+// falls back to ECMWF where NBM has no data. 'ecmwf' is the European
+// model (IFS, 9 km), worldwide. Over Sept–Nov 2026 at Central Park both beat
+// Open-Meteo's automatic pick (HRRR/GFS in the US, ~3 °C too cold at night).
 const NBM_MODEL = 'ncep_nbm_conus';
+const ECMWF_MODEL = 'ecmwf_ifs';
+const DEFAULT_MODEL = 'nbm';
 const SOURCE_LABELS = {
-  auto: 'Open-Meteo pick',
+  ecmwf: 'ECMWF',
   nbm: 'NOAA NBM',
-  'nbm-partial': 'NOAA NBM + Open-Meteo pick',
-  'nbm-unavailable': 'Open-Meteo pick (NBM not available here)'
+  'nbm-partial': 'NOAA NBM + ECMWF',
+  'nbm-unavailable': 'ECMWF (NBM not available here)'
 };
 const STALE_ON_REOPEN_MS = 10 * 60 * 1000; // refetch when the app comes back after this long
 const MAX_AGE_MS = 30 * 60 * 1000;         // refetch while open once data is this old
@@ -50,7 +54,7 @@ let windThresholdMph = DEFAULT_WIND_MPH;
 let gustThresholdMph = DEFAULT_GUST_MPH;
 let tempBands = [...DEFAULT_BANDS];
 let colorBy = 'actual';         // 'actual' | 'feels' — which value picks the line color
-let forecastModel = 'auto';     // 'auto' | 'nbm'
+let forecastModel = DEFAULT_MODEL;  // 'nbm' | 'ecmwf'
 let rainAxis = 'auto';          // 'auto' | 'fixed'
 let rainMaxMm = DEFAULT_RAIN_MAX_MM;  // top of the rain axis when fixed
 let debounceTimer = null;
@@ -202,7 +206,8 @@ function loadPrefs() {
         p.bands.every(b => inRange(b, BAND_RANGE)) &&
         p.bands[0] < p.bands[1] && p.bands[1] < p.bands[2]) tempBands = [...p.bands];
     if (p.colorBy === 'actual' || p.colorBy === 'feels') colorBy = p.colorBy;
-    if (p.model === 'auto' || p.model === 'nbm') forecastModel = p.model;
+    if (p.model === 'nbm' || p.model === 'ecmwf') forecastModel = p.model;
+    else if (p.model === 'auto') forecastModel = 'ecmwf';  // the old non-NBM choice
     if (p.rainAxis === 'auto' || p.rainAxis === 'fixed') rainAxis = p.rainAxis;
     if (RAIN_MAX_CHOICES.includes(p.rainMax)) rainMaxMm = p.rainMax;
   } catch { /* storage unavailable (private mode) — use defaults */ }
@@ -532,23 +537,23 @@ async function fetchForecast(lat, lon, model) {
     timezone: 'auto',
     forecast_days: 5
   });
-  // Both models in one request, so the fallback costs no extra round trip.
-  if (model === 'nbm') params.set('models', `${NBM_MODEL},best_match`);
+  // NBM comes with ECMWF in one request, so the fallback costs no extra round trip.
+  params.set('models', model === 'nbm' ? `${NBM_MODEL},${ECMWF_MODEL}` : ECMWF_MODEL);
   const resp = await fetch(`${FORECAST_URL}?${params}`);
   if (!resp.ok) throw new Error(`Forecast API returned ${resp.status}`);
   const data = await resp.json();
-  return { ...(model === 'nbm' ? mergeNbm(data) : { ...data, source: 'auto' }), model };
+  return { ...(model === 'nbm' ? mergeNbm(data) : { ...data, source: 'ecmwf' }), model };
 }
 
 // With two models requested, Open-Meteo suffixes each variable with the model
-// name (temperature_2m_ncep_nbm_conus, temperature_2m_best_match). Outside
-// NBM's area it returns only the plain names. Use NBM wherever it has a
-// value and fill any gaps from Open-Meteo's pick.
+// name (temperature_2m_ncep_nbm_conus, temperature_2m_ecmwf_ifs). Outside
+// NBM's area it returns only the plain (ECMWF) names. Use NBM wherever it
+// has a value and fill any gaps from ECMWF.
 function mergeNbm(data) {
   const H = data.hourly;
   const D = data.daily;
   if (!(`temperature_2m_${NBM_MODEL}` in H)) return { ...data, source: 'nbm-unavailable' };
-  const pick = (block, v, i) => block[`${v}_${NBM_MODEL}`]?.[i] ?? block[`${v}_best_match`]?.[i] ?? null;
+  const pick = (block, v, i) => block[`${v}_${NBM_MODEL}`]?.[i] ?? block[`${v}_${ECMWF_MODEL}`]?.[i] ?? null;
   const hourly = { time: H.time };
   HOURLY_VARS.forEach(v => { hourly[v] = H.time.map((_, i) => pick(H, v, i)); });
   const daily = { time: D.time };
@@ -1034,7 +1039,7 @@ function refresh() {
 }
 
 // The source in the subline is a button that flips between the two sources.
-const OTHER_SOURCE = { auto: 'nbm', nbm: 'auto' };
+const OTHER_SOURCE = { ecmwf: 'nbm', nbm: 'ecmwf' };
 function showSource(source) {
   sourceBtn.hidden = false;
   sourceBtn.classList.remove('switching');
@@ -1302,10 +1307,10 @@ gustSelect.addEventListener('change', () => {
 });
 
 document.getElementById('settings-reset').addEventListener('click', () => {
-  const sourceChanged = forecastModel !== 'auto';
+  const sourceChanged = forecastModel !== DEFAULT_MODEL;
   tempBands = [...DEFAULT_BANDS];
   colorBy = 'actual';
-  forecastModel = 'auto';
+  forecastModel = DEFAULT_MODEL;
   windThresholdMph = DEFAULT_WIND_MPH;
   gustThresholdMph = DEFAULT_GUST_MPH;
   rainAxis = 'auto';
@@ -1315,15 +1320,27 @@ document.getElementById('settings-reset').addEventListener('click', () => {
 
 // Focus rings only for keyboard use (see .pointer-input in style.css).
 const KEYBOARD_NAV_KEYS = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
-document.addEventListener('pointerdown', () =>
-  document.documentElement.classList.add('pointer-input'), true);
+let usingKeyboard = false;
+const setKeyboard = on => {
+  usingKeyboard = on;
+  document.documentElement.classList.toggle('pointer-input', !on);
+};
+['pointerdown', 'touchstart'].forEach(t =>
+  document.addEventListener(t, () => setKeyboard(false), { capture: true, passive: true }));
 document.addEventListener('keydown', e => {
-  if (KEYBOARD_NAV_KEYS.has(e.key)) document.documentElement.classList.remove('pointer-input');
+  if (KEYBOARD_NAV_KEYS.has(e.key)) setKeyboard(true);
 }, true);
+
+// Opens a dialog with focus on its title rather than its first button, so
+// Done / Back never show a focus ring (iOS draws one even after a tap).
+function showSheet(dialog) {
+  dialog.showModal();
+  dialog.querySelector('h2').focus({ preventScroll: true });
+}
 
 settingsBtn.addEventListener('click', () => {
   syncSettingsForm();
-  settingsDialog.showModal();
+  showSheet(settingsDialog);
 });
 
 // Tapping the dimmed backdrop closes the sheet (the form fills the dialog,
@@ -1332,7 +1349,10 @@ settingsDialog.addEventListener('click', e => {
   if (e.target === settingsDialog) settingsDialog.close();
 });
 // Back to the gear button for keyboard users, without scrolling the page.
-settingsDialog.addEventListener('close', () => settingsBtn.focus({ preventScroll: true }));
+settingsDialog.addEventListener('close', () => {
+  if (usingKeyboard) settingsBtn.focus({ preventScroll: true });
+  else document.activeElement?.blur();   // closing restores focus to the gear
+});
 
 // ─── Radar (full screen, last hour) ──────────────────────────────────────────
 // US: the nearest NEXRAD's own scans (250 m detail, every 3–5 min) as map tiles
@@ -1730,7 +1750,7 @@ async function startRadar() {
     radarEls.time.hidden = radarEls.key.hidden = false;
     radarEls.hint.hidden = radarHintSeen;
     radarDialog.classList.add('ready');
-    radarEls.map.focus({ preventScroll: true });
+    if (usingKeyboard) radarEls.map.focus({ preventScroll: true });
   } catch (err) {
     if (err.name === 'AbortError' || stale()) return;
     console.error('Radar failed:', err);
@@ -1740,7 +1760,7 @@ async function startRadar() {
 
 function openRadar() {
   radarEls.place.textContent = current.label;
-  radarDialog.showModal();
+  showSheet(radarDialog);
   history.pushState({ radar: true }, '');
   startRadar();
 }
@@ -1758,7 +1778,8 @@ radarDialog.addEventListener('close', () => {
   if (radarMap) clearRadarFrames();
   radarDialog.classList.remove('ready');
   if (history.state?.radar) history.back();
-  radarBtn.focus({ preventScroll: true });
+  if (usingKeyboard) radarBtn.focus({ preventScroll: true });
+  else document.activeElement?.blur();   // closing restores focus to the radar button
 });
 // Browser / swipe back closes the radar instead of leaving the app.
 window.addEventListener('popstate', closeRadar);
