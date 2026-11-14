@@ -928,3 +928,12 @@ body:has(.radar[open]) { overflow: hidden; }
   .refresh-btn.spinning svg { animation-duration: 2s; }
   html { scroll-snap-type: none; }
 }
+
+/* ─── Focus rings: keyboard only ─────────────────────────────────────────── */
+/* Opening a sheet focuses its first button (Done, Back), and iOS Safari draws
+   a focus ring for that even after a tap. iPhone apps never show one, so
+   after a touch or mouse press hide them; Tab or an arrow key brings them
+   back (see app.js). */
+.pointer-input :focus,
+.pointer-input :focus-visible { outline: none; }
+.pointer-input .canvas-wrap canvas:focus-visible { box-shadow: none; }

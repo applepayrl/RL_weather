@@ -1313,6 +1313,14 @@ document.getElementById('settings-reset').addEventListener('click', () => {
   settingsChanged({ colors: true, wind: true, rain: true, source: sourceChanged });
 });
 
+// Focus rings only for keyboard use (see .pointer-input in style.css).
+const KEYBOARD_NAV_KEYS = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
+document.addEventListener('pointerdown', () =>
+  document.documentElement.classList.add('pointer-input'), true);
+document.addEventListener('keydown', e => {
+  if (KEYBOARD_NAV_KEYS.has(e.key)) document.documentElement.classList.remove('pointer-input');
+}, true);
+
 settingsBtn.addEventListener('click', () => {
   syncSettingsForm();
   settingsDialog.showModal();
