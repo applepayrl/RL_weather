@@ -4,6 +4,10 @@ const DEFAULT_WIND_MPH = 10;         // orange wind dot above this
 const DEFAULT_GUST_MPH = 30;         // red wind dot when gusts reach this
 const WIND_RANGE = [0, 30];          // choices offered in Settings
 const GUST_RANGE = [10, 60];
+// Rain axis: 'auto' is 0–5 mm, growing on days with heavier rain; 'fixed'
+// keeps every day at 0–rainMaxMm so days compare at a glance.
+const RAIN_MAX_CHOICES = [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 40, 50];
+const DEFAULT_RAIN_MAX_MM = 5;
 // Temperature line colors: cold ≤ b0 < mild ≤ b1 < warm ≤ b2 < hot (°C)
 const DEFAULT_BANDS = [5, 15, 25];
 const BAND_COLORS = ['#4a90e2', '#4caf50', '#e8b84a', '#d94f4f']; // blue, green, yellow, red
@@ -47,6 +51,8 @@ let gustThresholdMph = DEFAULT_GUST_MPH;
 let tempBands = [...DEFAULT_BANDS];
 let colorBy = 'actual';         // 'actual' | 'feels' — which value picks the line color
 let forecastModel = 'auto';     // 'auto' | 'nbm'
+let rainAxis = 'auto';          // 'auto' | 'fixed'
+let rainMaxMm = DEFAULT_RAIN_MAX_MM;  // top of the rain axis when fixed
 let debounceTimer = null;
 let geocodeController = null;   // aborts superseded city searches
 let lastResults = [];           // results currently shown in the dropdown
@@ -64,6 +70,7 @@ const chartsContainer = document.getElementById('charts-container');
 const loadingEl = document.getElementById('loading');
 const windSelect = document.getElementById('wind-threshold');
 const lastUpdatedEl = document.getElementById('last-updated');
+const sourceBtn = document.getElementById('source-btn');
 const refreshBtn = document.getElementById('refresh-btn');
 
 // If the Chart.js CDN script failed to load, say so instead of leaving a
@@ -196,6 +203,8 @@ function loadPrefs() {
         p.bands[0] < p.bands[1] && p.bands[1] < p.bands[2]) tempBands = [...p.bands];
     if (p.colorBy === 'actual' || p.colorBy === 'feels') colorBy = p.colorBy;
     if (p.model === 'auto' || p.model === 'nbm') forecastModel = p.model;
+    if (p.rainAxis === 'auto' || p.rainAxis === 'fixed') rainAxis = p.rainAxis;
+    if (RAIN_MAX_CHOICES.includes(p.rainMax)) rainMaxMm = p.rainMax;
   } catch { /* storage unavailable (private mode) — use defaults */ }
 }
 
@@ -203,7 +212,7 @@ function savePrefs() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       ...current, wind: windThresholdMph, gust: gustThresholdMph, bands: tempBands, colorBy,
-      model: forecastModel
+      model: forecastModel, rainAxis, rainMax: rainMaxMm
     }));
   } catch { /* ignore */ }
 }
@@ -491,6 +500,20 @@ const TEMP_STEP = 5; // round expansions to nearest 5 °C to keep tick labels cl
 // padding, top padding). Expansions add only plot-area pixels.
 const CHART_CHROME_PX = 55; // measured: canvas height − plot-area height
 
+// Top and tick step of a day's rain axis (see rainAxis).
+// Auto: 0–5 mm, growing in 5 mm steps to fit heavier hours so they aren't
+// clipped, with about 5 tick labels. Fixed: 0–rainMaxMm on every day; heavier
+// hours run off the top (the readout still shows the amount).
+function rainScale(precip) {
+  if (rainAxis === 'fixed') {
+    const step = [0.25, 0.5, 1, 2, 5, 10].find(st => Number.isInteger(rainMaxMm / st) && rainMaxMm / st <= 6);
+    return { max: rainMaxMm, step };
+  }
+  const peak = Math.max(0, ...precip);
+  const max = peak > 5 ? Math.ceil(peak / 5) * 5 : 5;
+  return { max, step: max / 5 };
+}
+
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
 const HOURLY_VARS = ['temperature_2m', 'apparent_temperature', 'precipitation',
@@ -514,7 +537,7 @@ async function fetchForecast(lat, lon, model) {
   const resp = await fetch(`${FORECAST_URL}?${params}`);
   if (!resp.ok) throw new Error(`Forecast API returned ${resp.status}`);
   const data = await resp.json();
-  return model === 'nbm' ? mergeNbm(data) : { ...data, source: 'auto' };
+  return { ...(model === 'nbm' ? mergeNbm(data) : { ...data, source: 'auto' }), model };
 }
 
 // With two models requested, Open-Meteo suffixes each variable with the model
@@ -728,10 +751,7 @@ function createDayCard(dayData, offsetSec) {
     canvasWrap.style.height = `${Math.round(newHeight)}px`;
   }
 
-  // Rain axis: 0–5 mm normally; grows to fit heavier hours so they aren't
-  // clipped, with a step that keeps about 5 tick labels.
-  const precipPeak = Math.max(0, ...s.precip);
-  const precipMax = precipPeak > 5 ? Math.ceil(precipPeak / 5) * 5 : 5;
+  const rain = rainScale(s.precip);
   const precipBg = s.precip.map(v => v > 5 ? 'rgba(30, 70, 160, 0.75)' : 'rgba(74, 144, 226, 0.55)');
   const precipBorder = s.precip.map(v => v > 5 ? 'rgba(30, 70, 160, 0.95)' : 'rgba(74, 144, 226, 0.8)');
 
@@ -825,10 +845,10 @@ function createDayCard(dayData, offsetSec) {
           type: 'linear',
           position: 'right',
           min: 0,
-          max: precipMax,
+          max: rain.max,
           title: { display: true, text: 'mm', font: axisTitleFont, color: COLORS.precip },
           grid: { drawOnChartArea: false },
-          ticks: { stepSize: precipMax / 5, font: tickFont, color: COLORS.precip }
+          ticks: { stepSize: rain.step, font: tickFont, color: COLORS.precip }
         }
       }
     }
@@ -979,13 +999,22 @@ async function loadWeather(lat, lon, label) {
     locationLabel.textContent = current.label;
     savePrefs();
     lastUpdatedAt = new Date();
-    lastUpdatedEl.textContent = `Updated ${formatUpdated(lastUpdatedAt)} · ${SOURCE_LABELS[data.source]}`;
+    lastUpdatedEl.textContent = `Updated ${formatUpdated(lastUpdatedAt)} · `;
+    showSource(data.source);
     renderForecast(data);
   } catch (err) {
     if (seq !== loadSeq) return;
     if (cards.length > 0) {
       const what = label ? `Couldn't load ${label}` : "Couldn't refresh";
-      lastUpdatedEl.textContent = `${what} · showing ${formatUpdated(lastUpdatedAt)} forecast`;
+      lastUpdatedEl.textContent = `${what} · showing ${formatUpdated(lastUpdatedAt)} forecast · `;
+      // A failed source switch leaves the old source's numbers on screen,
+      // so go back to that source rather than claim the new one.
+      if (forecastModel !== lastForecastData.model) {
+        forecastModel = lastForecastData.model;
+        savePrefs();
+        syncSettingsForm();
+      }
+      showSource(lastForecastData.source);
     } else {
       showError("Couldn't load the forecast.", err.message,
         () => loadWeather(lat, lon, label));
@@ -1003,6 +1032,23 @@ async function loadWeather(lat, lon, label) {
 function refresh() {
   return loadWeather(current.lat, current.lon);
 }
+
+// The source in the subline is a button that flips between the two sources.
+const OTHER_SOURCE = { auto: 'nbm', nbm: 'auto' };
+function showSource(source) {
+  sourceBtn.hidden = false;
+  sourceBtn.classList.remove('switching');
+  sourceBtn.querySelector('span').textContent = SOURCE_LABELS[source];
+  sourceBtn.setAttribute('aria-label',
+    `Forecast source: ${SOURCE_LABELS[source]}. Switch to ${SOURCE_LABELS[OTHER_SOURCE[forecastModel]]}.`);
+}
+
+sourceBtn.addEventListener('click', () => {
+  forecastModel = OTHER_SOURCE[forecastModel];
+  sourceBtn.querySelector('span').textContent = `Switching to ${SOURCE_LABELS[forecastModel]}…`;
+  sourceBtn.classList.add('switching');
+  settingsChanged({ source: true });
+});
 
 // ─── Keeping it current (home-screen app stays in memory for days) ──────────
 
@@ -1144,6 +1190,7 @@ document.addEventListener('click', e => {
 const settingsDialog = document.getElementById('settings');
 const settingsBtn = document.getElementById('settings-btn');
 const gustSelect = document.getElementById('gust-select');
+const rainMaxSelect = document.getElementById('rain-max');
 const bandSelects = [0, 1, 2].map(i => document.getElementById('band-' + i));
 
 function fillSelect(sel, [from, to]) {
@@ -1168,6 +1215,8 @@ function syncSettingsForm() {
   document.getElementById('band-hot').textContent = b < 0 ? '−' + -b : b;
   settingsDialog.querySelector(`input[name="colorBy"][value="${colorBy}"]`).checked = true;
   settingsDialog.querySelector(`input[name="model"][value="${forecastModel}"]`).checked = true;
+  settingsDialog.querySelector(`input[name="rainAxis"][value="${rainAxis}"]`).checked = true;
+  rainMaxSelect.value = rainMaxMm;
   windSelect.value = windThresholdMph;
   gustSelect.value = gustThresholdMph;
 }
@@ -1191,12 +1240,24 @@ function applyWindThreshold() {
   });
 }
 
-function settingsChanged({ colors = false, wind = false, source = false } = {}) {
+// Rescales the rain axes in place — no chart rebuild needed.
+function applyRainAxis() {
+  cards.forEach(c => {
+    const { max, step } = rainScale(c.slots.precip);
+    const y = c.chart.options.scales.yPrecip;
+    y.max = max;
+    y.ticks.stepSize = step;
+    c.chart.update('none');
+  });
+}
+
+function settingsChanged({ colors = false, wind = false, rain = false, source = false } = {}) {
   savePrefs();
   syncSettingsForm();
   renderLegend();
   if (colors) applyTempColors();
   if (wind) applyWindThreshold();
+  if (rain) applyRainAxis();
   if (source) refresh(); // different model → new numbers
 }
 
@@ -1217,6 +1278,19 @@ settingsDialog.querySelectorAll('input[name="colorBy"]').forEach(radio =>
     settingsChanged({ colors: true });
   }));
 
+settingsDialog.querySelectorAll('input[name="rainAxis"]').forEach(radio =>
+  radio.addEventListener('change', () => {
+    rainAxis = radio.value;
+    settingsChanged({ rain: true });
+  }));
+
+// Picking a top value means "fix it here".
+rainMaxSelect.addEventListener('change', () => {
+  rainMaxMm = parseInt(rainMaxSelect.value, 10);
+  rainAxis = 'fixed';
+  settingsChanged({ rain: true });
+});
+
 windSelect.addEventListener('change', () => {
   windThresholdMph = parseInt(windSelect.value, 10);
   settingsChanged({ wind: true });
@@ -1234,7 +1308,9 @@ document.getElementById('settings-reset').addEventListener('click', () => {
   forecastModel = 'auto';
   windThresholdMph = DEFAULT_WIND_MPH;
   gustThresholdMph = DEFAULT_GUST_MPH;
-  settingsChanged({ colors: true, wind: true, source: sourceChanged });
+  rainAxis = 'auto';
+  rainMaxMm = DEFAULT_RAIN_MAX_MM;
+  settingsChanged({ colors: true, wind: true, rain: true, source: sourceChanged });
 });
 
 settingsBtn.addEventListener('click', () => {
@@ -1740,6 +1816,7 @@ loadPrefs();
 fillSelect(windSelect, WIND_RANGE);
 fillSelect(gustSelect, GUST_RANGE);
 bandSelects.forEach(sel => fillSelect(sel, BAND_RANGE));
+RAIN_MAX_CHOICES.forEach(v => rainMaxSelect.add(new Option(String(v), v)));
 syncSettingsForm();
 renderLegend();
 locationLabel.textContent = current.label;

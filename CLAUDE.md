@@ -1,7 +1,7 @@
 # Weather App — Project Instructions
 
 ## Overview
-A static weather dashboard (no backend) that shows a 5-day hourly forecast using Open-Meteo's free API. Default location is 10065 (Upper East Side, NYC). Users can search for any city via the geocoding dropdown; a Settings sheet (gear button) sets the forecast source (Open-Meteo's automatic pick, or NOAA NBM with fallback to the pick outside its continental-US/southern-Canada area), the temperature color bands, whether they follow actual or feels-like temperature, and the wind/gust dot thresholds. A radar button (left of the gear) opens a full-screen map of the last hour of radar around the city: the nearest NEXRAD's 250 m scans in the US (Iowa Environmental Mesonet tiles), the US composite when no NEXRAD is close, RainViewer elsewhere; dragging one finger left/right moves through the hour. The last city and all settings are remembered (localStorage). Optimized for iPhone (17 Pro) as a home-screen web app, served from GitHub Pages.
+A static weather dashboard (no backend) that shows a 5-day hourly forecast using Open-Meteo's free API. Default location is 10065 (Upper East Side, NYC). Users can search for any city via the geocoding dropdown; a Settings sheet (gear button) sets the forecast source (Open-Meteo's automatic pick, or NOAA NBM with fallback to the pick outside its continental-US/southern-Canada area), the rain axis (auto-scale or fixed), the temperature color bands, whether they follow actual or feels-like temperature, and the wind/gust dot thresholds. A radar button (left of the gear) opens a full-screen map of the last hour of radar around the city: the nearest NEXRAD's 250 m scans in the US (Iowa Environmental Mesonet tiles), the US composite when no NEXRAD is close, RainViewer elsewhere; dragging one finger left/right moves through the hour. The last city and all settings are remembered (localStorage). Optimized for iPhone (17 Pro) as a home-screen web app, served from GitHub Pages.
 
 ## Tech stack
 - HTML5 + CSS3 + vanilla JavaScript (ES6+)
@@ -44,7 +44,7 @@ Open http://localhost:8080 in the browser and confirm ALL of the following:
 - [ ] Each chart has 24 x-axis tick marks
 - [ ] X-axis labels appear every 3 hours in 12h format (12AM, 3AM, 6AM, 9AM, 12PM, 3PM, 6PM, 9PM)
 - [ ] Temperature line (colored by band, defaults blue ≤5, green ≤15, yellow ≤25, red >25 °C) uses left y-axis labeled "°C"; with Settings → Feels like, the actual-temperature line is colored by the feels-like value
-- [ ] Blue precipitation bars use right y-axis labeled "mm" (0–5, grows when a day has heavier rain)
+- [ ] Blue precipitation bars use right y-axis labeled "mm" (Auto-scale: 0–5, grows when a day has heavier rain; Settings → Rain axis → Fixed keeps every day at 0–the chosen mm, applied without rebuilding charts)
 - [ ] Thin gray feels-like line is drawn on the °C axis
 - [ ] Orange wind dots appear below x-axis for hours where wind > the wind threshold (default 10 mph); red dots where gusts ≥ the gust threshold (default 30 mph); legend shows both values
 - [ ] On today's card, past hours are dimmed and a dashed line marks the current time
@@ -54,10 +54,10 @@ Open http://localhost:8080 in the browser and confirm ALL of the following:
 - [ ] Search input triggers dropdown with up to 5 city results ("No cities match" when empty); Return picks the first result
 - [ ] Clicking a city reloads all charts with new location data; reload keeps that city
 - [ ] Gear button (left of refresh) opens Settings (bottom sheet on phone): band boundaries stay ascending, changes apply immediately without rebuilding charts, persist across reloads, and Reset restores defaults; feels-like line stays gray
-- [ ] Settings → Forecast source switches between Open-Meteo pick and NOAA NBM (refetches); the subline names the source in use (e.g. "Updated 11:42 AM · NOAA NBM"); a city outside NBM's area (e.g. London) shows "Open-Meteo pick (NBM not available here)"
+- [ ] Settings → Forecast source switches between Open-Meteo pick and NOAA NBM (refetches); the subline names the source in use (e.g. "Updated 11:42 AM · NOAA NBM"), and tapping that name switches to the other source (Settings follows); a city outside NBM's area (e.g. London) shows "Open-Meteo pick (NBM not available here)"
 - [ ] Radar button (left of the gear) opens a full-screen radar with a Back button; a progress bar shows while frames load and the map appears only once every frame of the last hour has loaded; dragging left/right on the map moves through the hour (time and "N min ago" in the bar, right = later), pinch / scroll wheel zooms (zoom-out stops at about the nearest radar's ~460 km range, or ~1,500 km across for the composite / RainViewer, so the hour of frames fits in iPhone memory), arrow keys step frames; Back (or browser back) returns to the forecast; London falls back to RainViewer; on a clear day no stray dots show (weak echoes below ~14 dBZ and specks smaller than ~5 km² are hidden)
 - [ ] Page scrolls smoothly between chart cards
-- [ ] Search bar stays pinned at the top while scrolling (portrait phone and desktop)
+- [ ] Search bar stays pinned at the top while scrolling (portrait phone and desktop); on a home-screen iPhone the header buttons, pinned search bar and radar bar sit 16 px below the status bar, clear of iOS's fade there
 - [ ] Layout looks good at desktop (900px+), mobile (375px / 402px) and phone landscape (874×402)
 
 ## Fix loop

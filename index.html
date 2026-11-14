@@ -19,7 +19,7 @@
   <link rel="manifest" href="manifest.json">
 
   <!-- ?v= values are content hashes, rewritten by .githooks/pre-commit -->
-  <link rel="stylesheet" href="style.css?v=0b036133">
+  <link rel="stylesheet" href="style.css?v=099d8adb">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
           integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
           crossorigin="anonymous"></script>
@@ -62,7 +62,7 @@
       </div>
       <p class="subline">
         <span id="location-label"></span>
-        <span id="last-updated" class="last-updated" aria-live="polite"></span>
+        <span class="last-updated"><span id="last-updated" aria-live="polite"></span><button type="button" id="source-btn" class="source-btn" hidden><span></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></button></span>
       </p>
     </header>
 
@@ -153,6 +153,21 @@
         </div>
       </section>
 
+      <section class="settings-group" aria-labelledby="rain-title">
+        <h3 id="rain-title">Rain axis</h3>
+        <div class="segmented" role="radiogroup" aria-label="Rain axis scale">
+          <label><input type="radio" name="rainAxis" value="auto"><span>Auto-scale</span></label>
+          <label><input type="radio" name="rainAxis" value="fixed"><span>Fixed</span></label>
+        </div>
+        <div class="setting-row">
+          <span class="dot" style="--c: var(--accent-precip)" aria-hidden="true"></span>
+          <label class="setting-label" for="rain-max">Fixed top</label>
+          <select id="rain-max" class="setting-select"></select>
+          <span class="setting-unit">mm</span>
+        </div>
+        <p class="settings-note">Auto-scale shows 0–5 mm and grows on days with heavier rain. Fixed keeps every day on the same scale; heavier hours run off the top (tap the hour to see the amount).</p>
+      </section>
+
       <section class="settings-group" aria-labelledby="wind-title">
         <h3 id="wind-title">Wind dots</h3>
         <div class="setting-row">
@@ -207,6 +222,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=9fe8f36c"></script>
+  <script src="app.js?v=e0721556"></script>
 </body>
 </html>
