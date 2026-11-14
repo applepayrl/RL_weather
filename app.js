@@ -1086,6 +1086,42 @@ function onResume() {
 document.addEventListener('visibilitychange', onResume);
 window.addEventListener('pageshow', e => { if (e.persisted) onResume(); });
 
+// New versions. A home-screen app resumes the copy already in memory, and
+// GitHub Pages lets the phone reuse index.html for 10 minutes, so an update
+// can take a while to show. On launch and on every return to the app, fetch
+// index.html past the cache and compare its ?v= hashes (set by the pre-commit
+// hook) with the ones running; if they differ, reload — only when nothing is
+// open or being typed, else at the next return.
+const VERSION_CHECK_MS = 60 * 1000;   // at most one check a minute
+const RELOADED_FOR_KEY = 'rlweather:reloadedFor';
+let lastVersionCheck = 0;
+
+const versionOf = html => (html.match(/(?:style\.css|app\.js)\?v=[a-f0-9]+/g) || []).sort().join(' ');
+
+async function checkForNewVersion() {
+  if (document.visibilityState !== 'visible' || Date.now() - lastVersionCheck < VERSION_CHECK_MS) return;
+  lastVersionCheck = Date.now();
+  try {
+    const running = [...document.querySelectorAll('link[href*="style.css?v="], script[src*="app.js?v="]')]
+      .map(el => el.getAttribute('href') ?? el.getAttribute('src')).sort().join(' ');
+    // 'reload' fetches from the network and refreshes the HTTP cache, so the
+    // page reload below gets the new index.html too.
+    const resp = await fetch(location.pathname, { cache: 'reload' });
+    if (!resp.ok) return;
+    const live = versionOf(await resp.text());
+    if (!live || !running || live === running) return;
+    const busy = settingsDialog.open || radarDialog.open ||
+      document.activeElement === searchInput || searchInput.value.trim();
+    if (busy) { lastVersionCheck = 0; return; }   // try again next time
+    // Never loop: one reload per new version per session.
+    if (sessionStorage.getItem(RELOADED_FOR_KEY) === live) return;
+    sessionStorage.setItem(RELOADED_FOR_KEY, live);
+    location.reload();
+  } catch { /* offline or storage blocked — check again next time */ }
+}
+document.addEventListener('visibilitychange', checkForNewVersion);
+window.addEventListener('pageshow', e => { if (e.persisted) checkForNewVersion(); });
+
 // ─── Search / geocode ────────────────────────────────────────────────────────
 
 function closeDropdown() {
@@ -1850,3 +1886,4 @@ syncSettingsForm();
 renderLegend();
 locationLabel.textContent = current.label;
 loadWeather(current.lat, current.lon, current.label);
+checkForNewVersion();
